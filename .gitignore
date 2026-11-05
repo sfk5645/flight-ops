@@ -10,8 +10,5 @@ dist/
 # Secrets: never commit
 .env
 
-# Local-only notes
-CLAUDE.md
-
 # OS
 .DS_Store
