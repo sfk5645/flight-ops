@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/
+
+# Secrets: never commit
+.env
+
+# Local-only notes
+CLAUDE.md
+
+# OS
+.DS_Store
