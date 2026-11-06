@@ -17,3 +17,15 @@ class R2Settings(BaseSettings):
     @property
     def endpoint_url(self) -> str:
         return f"https://{self.account_id}.r2.cloudflarestorage.com"
+
+
+class OpenSkySettings(BaseSettings):
+    """OpenSky Network API client credentials, read from OPENSKY_* environment variables.
+
+    Create the API client on the OpenSky Account page (OAuth2 client credentials).
+    """
+
+    model_config = SettingsConfigDict(env_prefix="OPENSKY_", env_file=".env", extra="ignore")
+
+    client_id: str
+    client_secret: SecretStr
