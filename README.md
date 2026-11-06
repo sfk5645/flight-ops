@@ -2,9 +2,9 @@
 
 A side project for predicting US flight delays and spotting weird flight behavior from live ADS-B data.
 
-The delay model gives a range instead of a single number, since "probably 10–40 min late" is more useful than "23 min late". Historical data comes from the BTS on-time reports, and everything is stored as Parquet in Cloudflare R2.
+Before takeoff it predicts how late a flight will arrive, given the scheduled times from your booking. Once a plane is in the air, it predicts when it will land. Predictions are ranges instead of single numbers, since "probably 10–40 min late" is more useful than "23 min late". Historical data comes from the BTS on-time reports, and everything is stored as Parquet in Cloudflare R2.
 
-Right now the historical pipeline is done (about three years of flights loaded and cleaned). Live tracking and the models come next.
+Right now the historical pipeline is done: about three years of flights loaded and cleaned, plus an inferred timetable and each plane's sequence of flights. Live tracking and the models come next. `docs/schedule_match_rate.md` explains why the app asks for scheduled times instead of guessing them.
 
 ## Setup
 
@@ -29,4 +29,4 @@ The first command downloads the monthly BTS files and cleans them up. The second
 - `src/flightops/` - ingestion, cleaning, pipelines
 - `dbt/` - final tables and data tests
 - `tests/` - unit and integration tests
-- `docs/` - setup notes
+- `docs/` - setup and findings
