@@ -37,3 +37,11 @@ jobs:
         run: |
           uv export --format requirements-txt --no-emit-project --quiet > "$RUNNER_TEMP/requirements.txt"
           uvx pip-audit --disable-pip -r "$RUNNER_TEMP/requirements.txt"
+
+      # Compiles every dbt model and test without touching R2 (dummy credentials).
+      - name: dbt parse
+        env:
+          R2_ACCOUNT_ID: ci
+          R2_ACCESS_KEY_ID: ci
+          R2_SECRET_ACCESS_KEY: ci
+        run: uv run dbt parse --project-dir dbt --profiles-dir dbt

@@ -1,0 +1,16 @@
+version: 2
+
+sources:
+  - name: silver
+    description: Typed, validated tables written by the Python pipeline (src/flightops/silver).
+    meta:
+      external_location: >-
+        read_parquet('r2://{{ env_var('R2_BUCKET', 'flight-ops-lake') }}/silver/{name}/**/*.parquet',
+        hive_partitioning = true)
+    tables:
+      - name: bts_flights
+        description: One row per BTS flight, times in UTC. Partitioned by year and month.
+      - name: airports
+        description: One row per IATA airport code, with IANA time zone.
+      - name: airlines
+        description: Airline IATA/ICAO codes and radio callsigns (OpenFlights).

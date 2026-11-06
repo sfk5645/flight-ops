@@ -10,8 +10,7 @@ a free alternative.
 |---|---|---|---|
 | GitHub | Code, CI, scheduled jobs (Actions) | 0 | No |
 | Cloudflare | R2 data lake | 0 | Yes (R2 free tier: 10 GB) |
-| Prefect Cloud | Flow run history | 1 | No |
-| MotherDuck | Warehouse for dbt | 1 | No |
+| Prefect Cloud | Flow run history | 3 | No |
 | OpenSky | Live positions | 3 | No. Read OpenSky's terms of use first |
 | DagsHub | MLflow tracking and registry | 4 | No |
 | Grafana Cloud | Pipeline dashboards and alerts | 7 | No |

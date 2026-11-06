@@ -64,9 +64,9 @@ class LakeStorage:
         pq.write_table(table, buffer, compression="zstd")
         self._client.put_object(Bucket=self.bucket, Key=key, Body=buffer.getvalue())
 
-    def read_parquet(self, key: str) -> pa.Table:
+    def read_parquet(self, key: str, columns: list[str] | None = None) -> pa.Table:
         response = self._client.get_object(Bucket=self.bucket, Key=key)
-        return pq.read_table(io.BytesIO(response["Body"].read()))
+        return pq.read_table(io.BytesIO(response["Body"].read()), columns=columns)
 
     def exists(self, key: str) -> bool:
         try:
