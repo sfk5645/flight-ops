@@ -1,24 +1,32 @@
-# Flight Ops
+# flight-ops
 
-Predicts how late US domestic flights will arrive (median plus an 80% range) and flags unusual flight behavior worldwide, running on free tiers ($0/month): GitHub Actions runs the pipelines, Cloudflare R2 stores the data, and the API and web app run locally.
+A side project for predicting US flight delays and spotting weird flight behavior from live ADS-B data.
 
-Status: **Phase 0 (foundation)**. See `docs/setup.md` for one-time account setup.
+The delay model gives a range instead of a single number, since "probably 10–40 min late" is more useful than "23 min late". Historical data comes from the BTS on-time reports, and everything is stored as Parquet in Cloudflare R2.
 
-## Development
+Right now the historical pipeline is done (about three years of flights loaded and cleaned). Live tracking and the models come next.
+
+## Setup
+
+You'll need [uv](https://docs.astral.sh/uv/) and an R2 bucket. Bucket setup is in `docs/setup.md`, and the keys go in a `.env` file.
 
 ```bash
-uv sync                    # install Python 3.12 + dependencies into .venv
-uv run ruff check .        # lint
-uv run ruff format .       # format
-uv run mypy                # type-check src/ (strict)
-uv run pytest              # tests (S3 is mocked; no cloud access needed)
+uv sync
+uv run pytest
 ```
+
+## Loading the data
+
+```bash
+uv run --env-file .env python -m flightops.flows.bts_history --start 2023-09 --end 2026-08
+uv run --env-file .env dbt build --project-dir dbt --profiles-dir dbt
+```
+
+The first command downloads the monthly BTS files and cleans them up. The second builds the tables the models will use and runs the data tests. Both are fine to re-run.
 
 ## Layout
 
-```
-src/flightops/     Python package (config, storage; more modules arrive per phase)
-tests/             pytest suites
-.github/workflows/ CI: lint, types, tests, dependency audit
-docs/              setup guide (ADRs, runbooks and the model card arrive in later phases)
-```
+- `src/flightops/` - ingestion, cleaning, pipelines
+- `dbt/` - final tables and data tests
+- `tests/` - unit and integration tests
+- `docs/` - setup notes

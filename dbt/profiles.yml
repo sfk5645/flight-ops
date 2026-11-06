@@ -1,0 +1,19 @@
+# No secrets here: credentials come from the same R2_* environment variables as the Python code.
+# Run from the repo root:  uv run --env-file .env dbt build --project-dir dbt --profiles-dir dbt
+flightops:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      # Local scratch database (gitignored); models read and write Parquet in R2, so nothing
+      # important lives here. Relative to where dbt runs (the repo root).
+      path: "{{ env_var('DBT_DUCKDB_PATH', 'flightops.duckdb') }}"
+      threads: 4
+      extensions: [httpfs]
+      settings:
+        TimeZone: UTC
+      secrets:
+        - type: r2
+          key_id: "{{ env_var('R2_ACCESS_KEY_ID') }}"
+          secret: "{{ env_var('R2_SECRET_ACCESS_KEY') }}"
+          account_id: "{{ env_var('R2_ACCOUNT_ID') }}"
