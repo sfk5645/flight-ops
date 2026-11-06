@@ -11,10 +11,17 @@ clean-targets: ["target", "dbt_packages", "logs"]
 
 vars:
   lake: "r2://{{ env_var('R2_BUCKET', 'flight-ops-lake') }}"
+  # Schedule inference (dim_schedule, schedule_match_rate)
+  schedule_window_days: 60       # history used to infer a timetable
+  schedule_min_times_seen: 3     # a time must repeat this often to count as the schedule
+  schedule_tolerance_min: 5      # "correct" means within this many minutes
+  schedule_backtest_months: 6    # latest months to measure the match rate on
 
 models:
   flightops:
     staging:
       +materialized: view
+    intermediate:
+      +materialized: ephemeral
     gold:
       +materialized: external

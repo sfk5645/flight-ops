@@ -44,3 +44,72 @@ models:
               arguments:
                 values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
                 quote: false
+
+  - name: dim_schedule
+    description: >
+      Inferred timetable from the latest 60 days of BTS: for each carrier, flight number and
+      route seen at least 3 times, the most recently flown scheduled departure and arrival
+      (local clock times). Only used to pre-fill suggested times in the web app; the user
+      confirms them. Accuracy is measured in schedule_match_rate.
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "carrier || '|' || flight_number || '|' || route"
+    columns:
+      - name: carrier
+        data_tests: [not_null]
+      - name: flight_number
+        data_tests: [not_null]
+      - name: route
+        data_tests: [not_null]
+      - name: sched_dep_time_local
+        data_tests: [not_null]
+      - name: sched_arr_time_local
+        data_tests: [not_null]
+      - name: arr_day_offset
+        description: >
+          Calendar days between departure and arrival dates (each in local time): 1 for a
+          red-eye, -1 when crossing the date line eastbound (Guam to Honolulu lands the day before).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [-1, 0, 1]
+                quote: false
+
+  - name: schedule_match_rate
+    description: >
+      Backtest of dim_schedule's method: per test month, staleness (lag_months 0 or 2) and
+      carrier, how many real flights had a timetable entry (matched), and how many had both
+      departure and arrival within 5 minutes (times_correct) or 15 minutes (times_within_15).
+    columns:
+      - name: test_month
+        data_tests: [not_null]
+      - name: lag_months
+        data_tests: [not_null]
+
+  - name: fct_rotations
+    description: >
+      One row per flown leg with a tail number, linked to the same aircraft's previous leg
+      (ordered by actual departure). Stores only the link, the previous leg's arrival delay and
+      the turnaround times; join to fct_flights_hist for anything else. chain_ok marks rows where
+      the previous leg is trustworthy: it landed at this origin, as planned, before this leg
+      took off.
+    columns:
+      - name: flight_id
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_flights_hist')
+                field: flight_id
+      - name: tail_number
+        data_tests: [not_null]
+      - name: prev_flight_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('fct_flights_hist')
+                field: flight_id
+      - name: chain_ok
+        data_tests: [not_null]
