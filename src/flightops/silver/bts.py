@@ -158,7 +158,10 @@ _VALID = """
 select
     -- Destination is part of the key: one flight number can cover several legs from the same
     -- origin at the same time (e.g. JFK->CVG and the through trip JFK->LAS).
-    md5(concat_ws('|', carrier, flight_number, origin, dest, epoch(sched_dep_utc))) as flight_id,
+    -- Stored as the raw 16-byte md5 rather than its 32-character hex text: hashes don't
+    -- compress, so this halves the biggest column. hex(flight_id) shows it as text.
+    unhex(md5(concat_ws('|', carrier, flight_number, origin, dest, epoch(sched_dep_utc))))
+        as flight_id,
     flight_date,
     carrier,
     flight_number,

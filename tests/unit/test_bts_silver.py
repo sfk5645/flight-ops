@@ -144,6 +144,12 @@ def test_flight_ids_are_unique_and_stable() -> None:
     assert first == second
 
 
+def test_flight_ids_are_16_raw_bytes() -> None:
+    flight_id = only_valid_row()["flight_id"]
+    assert isinstance(flight_id, bytes)
+    assert len(flight_id) == 16
+
+
 def test_output_is_identical_regardless_of_input_order() -> None:
     rows = [{"Flight_Number_Reporting_Airline": str(n)} for n in (3, 1, 2)]
     forward = build_silver(bronze(*rows), AIRPORTS)

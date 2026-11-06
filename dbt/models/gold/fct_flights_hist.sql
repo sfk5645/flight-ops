@@ -1,13 +1,11 @@
-{{
-    config(
-        location=var('lake') ~ '/gold/fct_flights_hist',
-        options={'partition_by': 'year, month', 'overwrite_or_ignore': true},
-    )
-}}
+{{ config(materialized='view') }}
 
 -- Every historical US domestic flight, one row each, with local-time fields the delay models
 -- need (scheduled hour and weekday at the origin). Cancelled and diverted flights stay in with
 -- their status; the training set filters to completed flights.
+--
+-- A view, not a stored table: it is silver plus a few columns that are cheap to compute, so
+-- storing a second copy in R2 would only cost space. DuckDB computes it whenever it's read.
 select
     f.flight_id,
     f.flight_date,
@@ -46,4 +44,3 @@ select
 from {{ ref('stg_bts_flights') }} as f
 left join {{ ref('stg_airports') }} as o on o.iata = f.origin
 left join {{ ref('stg_airports') }} as d on d.iata = f.dest
-order by f.year, f.month, f.sched_dep_utc, f.flight_id
