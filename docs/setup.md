@@ -29,15 +29,17 @@ Note your **account ID** (R2 overview page, right side).
 - Location: Automatic, or a location hint of Eastern North America (close to GitHub's runners)
 - Storage class: Standard
 
-### 3. Add the 30-day expiry rule
+### 3. Add the 2-day expiry rule
 
-Raw 5-minute position snapshots grow by ~100+ MB/day. This rule deletes them after 30 days so the
-bucket stays under the 10 GB free tier. Compacted data in `silver/` is kept.
+Raw 5-minute position snapshots add about 130 MB a day. The daily job turns each day into small
+per-flight results, so the raw files are only needed for a couple of days. This rule deletes
+them after 2 days, which keeps the bucket well under the 10 GB free tier. Everything else is
+trimmed to a rolling window by `flightops.flows.prune_lake` (see `src/flightops/retention.py`).
 
 **flight-ops-lake > Settings > Object lifecycle rules > Add rule**:
 - Rule name: `expire-raw-positions`
 - Applies to objects with prefix: `bronze/opensky_states/`
-- Action: delete objects **30 days** after upload
+- Action: delete objects **2 days** after upload
 
 ### 4. Create an API token for the code
 

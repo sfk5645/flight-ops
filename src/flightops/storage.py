@@ -19,6 +19,7 @@ from flightops.config import R2Settings
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
+    from mypy_boto3_s3.type_defs import ObjectIdentifierTypeDef
 
 Layer = Literal["bronze", "silver", "gold", "quarantine"]
 
@@ -83,3 +84,11 @@ class LakeStorage:
         for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
             keys.extend(obj["Key"] for obj in page.get("Contents", []) if "Key" in obj)
         return keys
+
+    def delete(self, keys: list[str]) -> None:
+        """Delete objects (in batches of 1,000, the S3 limit per request)."""
+        for start in range(0, len(keys), 1000):
+            batch: list[ObjectIdentifierTypeDef] = [{"Key": k} for k in keys[start : start + 1000]]
+            response = self._client.delete_objects(Bucket=self.bucket, Delete={"Objects": batch})
+            if response.get("Errors"):
+                raise RuntimeError(f"failed to delete: {response['Errors']}")

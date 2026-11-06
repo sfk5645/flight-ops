@@ -1,6 +1,6 @@
 """Load BTS history into the lake: reference tables, then bronze and silver for each month.
 
-    uv run --env-file .env python -m flightops.flows.bts_history --start 2023-09 --end 2026-08
+    uv run --env-file .env python -m flightops.flows.bts_history --start 2024-09 --end 2026-08
 
 Safe to re-run: bronze months already downloaded are skipped, silver is rebuilt deterministically.
 """
