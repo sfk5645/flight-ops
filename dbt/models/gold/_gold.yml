@@ -4,11 +4,13 @@ models:
   - name: fct_flights_hist
     description: >
       Every historical US domestic flight from BTS (one row per flight), with UTC timestamps,
-      origin-local schedule fields, delays and delay causes. Written to R2 as Parquet,
-      partitioned by year and month.
+      origin-local schedule fields, delays and delay causes. A view over silver (computed when
+      read, nothing stored), so it always matches silver.
     columns:
       - name: flight_id
-        description: md5 of carrier, flight number, origin, destination and scheduled departure (UTC).
+        description: >
+          md5 of carrier, flight number, origin, destination and scheduled departure (UTC), as 16
+          raw bytes. hex(flight_id) shows it as text.
         data_tests: [unique, not_null]
       - name: status
         data_tests:
