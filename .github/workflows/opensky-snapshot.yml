@@ -1,15 +1,12 @@
 name: opensky-snapshot
 
-# Every 5 minutes (GitHub's shortest schedule; runs can start late or be skipped when GitHub
-# is busy). ~1,150 of the 4,000 daily OpenSky credits. Raw snapshots expire after 2 days.
-# Offset to :03, :08, :13... because runs on the exact :00/:05 marks are the most often delayed.
+# Started every 5 minutes by an external timer (cron-job.org) calling the workflow_dispatch
+# API, because GitHub's own schedule fired once in 16 hours when we tried it. Setup steps are
+# in docs/setup.md. ~1,150 of the 4,000 daily OpenSky credits. Raw snapshots expire after 2 days.
 on:
-  schedule:
-    - cron: "3-58/5 * * * *"
   workflow_dispatch:
 
-# If a run is still going when the next one starts, let it finish and drop the queued one,
-# so runs never pile up.
+# If a run is still going when the next one starts, the new one waits, so runs never overlap.
 concurrency:
   group: opensky-snapshot
   cancel-in-progress: false

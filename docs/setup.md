@@ -12,6 +12,7 @@ a free alternative.
 | Cloudflare | R2 data lake | 0 | Yes (R2 free tier: 10 GB) |
 | Prefect Cloud | Flow run history | 3 | No |
 | OpenSky | Live positions | 3 | No. Read OpenSky's terms of use first |
+| cron-job.org | Starts the 5-minute workflows on time | 3 | No |
 | DagsHub | MLflow tracking and registry | 4 | No |
 | Grafana Cloud | Pipeline dashboards and alerts | 7 | No |
 
@@ -55,3 +56,35 @@ Copy the **Access Key ID** and **Secret Access Key** right away. The secret is s
   `R2_SECRET_ACCESS_KEY`.
 - **GitHub Actions:** add the same three under Settings > Secrets and variables > Actions > Secrets.
   Nothing uses them until Phase 1.
+
+## Phase 3: 5-minute timer
+
+GitHub's built-in `schedule:` trigger is best-effort: when we tried it, the 5-minute snapshot
+workflow ran once in 16 hours. So a free external timer, cron-job.org, starts the workflow
+through GitHub's API instead.
+
+### 1. Create a fine-grained token (GitHub, as the repo owner)
+
+**Settings > Developer settings > Personal access tokens > Fine-grained tokens > Generate new token**:
+- Name: `cron-job-snapshot`
+- Repository access: **Only select repositories** > `flight-ops`
+- Permissions: **Actions: Read and write** (Metadata: Read-only is added automatically)
+
+The token can only start, cancel and re-run workflows in this repo. Copy it right away; it is
+shown only once.
+
+### 2. Create the job (cron-job.org)
+
+**Cronjobs > Create cronjob**:
+- URL: `https://api.github.com/repos/sfk5645/flight-ops/actions/workflows/opensky-snapshot.yml/dispatches`
+- Schedule: every 5 minutes
+- Advanced > Request method: `POST`
+- Advanced > Headers:
+  - `Authorization`: `Bearer <token>`
+  - `Accept`: `application/vnd.github+json`
+  - `X-GitHub-Api-Version`: `2022-11-28`
+  - `Content-Type`: `application/json`
+- Advanced > Request body: `{"ref":"main"}`
+- Notify on failure: on (an expired or deleted token shows up as failures)
+
+A successful call returns `204`, and a `workflow_dispatch` run appears in the Actions tab.
