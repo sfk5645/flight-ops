@@ -64,6 +64,8 @@ def test_clean_flight_is_one_leg_with_takeoff_and_landing() -> None:
     assert (leg["first_air_time"], leg["last_air_time"]) == (at(10), at(60))
     assert (leg["start_reason"], leg["end_reason"]) == ("takeoff_seen", "landing_seen")
     assert (leg["last_ground_time"], leg["first_ground_time"]) == (at(5), at(65))
+    assert leg["last_ground_longitude"] == -84.4 + 5 * DEGREES_PER_MINUTE
+    assert leg["first_ground_longitude"] == -84.4 + 65 * DEGREES_PER_MINUTE
     assert leg["ground_blips"] == 0
 
 
