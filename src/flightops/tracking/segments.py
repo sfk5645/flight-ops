@@ -25,6 +25,7 @@ Airports, landing-time estimates and go-around merging come later, on top of the
 import pyarrow as pa
 
 from flightops.duck import connect
+from flightops.tracking.geo import distance_m
 
 # A gap longer than this ends a leg. Long enough that one missed 5-minute run (a 10-minute
 # gap) doesn't split a flight, short enough that an unseen landing and turnaround does.
@@ -41,8 +42,6 @@ CRUISE_ALTITUDE_M = 3000
 # Below the range it slowed or stopped (a landing); above it, the sightings don't fit.
 GAP_SPEED_RANGE = (0.7, 1.3)
 
-EARTH_RADIUS_M = 6_371_000
-
 _OBSERVATIONS = """
 create temp table observations as
 select
@@ -53,6 +52,7 @@ select
     coalesce(baro_altitude, geo_altitude) as altitude_m,
     velocity as speed_ms,
     vertical_rate as vertical_rate_ms,
+    true_track as track_deg,
     latitude,
     longitude
 from positions
@@ -90,7 +90,11 @@ with neighbours as (
         lag(airborne) over w as prev_airborne,
         lag(t) over w as prev_t,
         lead(airborne) over w as next_airborne,
-        lead(t) over w as next_t
+        lead(t) over w as next_t,
+        lag(latitude) over w as prev_latitude,
+        lag(longitude) over w as prev_longitude,
+        lead(latitude) over w as next_latitude,
+        lead(longitude) over w as next_longitude
     from smoothed
     window w as (partition by icao24 order by t)
 ),
@@ -141,9 +145,16 @@ select
             else 'vanished'
         end
     end) as end_reason,
-    -- The takeoff happened between these two times, and the landing between these two.
+    -- The takeoff happened between last_ground_time and first_air_time, the landing between
+    -- last_air_time and first_ground_time. The ground rows' positions are on the airport.
     max(case when m.starts_leg and m.prev_close then m.prev_t end) as last_ground_time,
+    max(case when m.starts_leg and m.prev_close then m.prev_latitude end) as last_ground_latitude,
+    max(case when m.starts_leg and m.prev_close then m.prev_longitude end)
+        as last_ground_longitude,
     max(case when m.ends_leg and m.next_close then m.next_t end) as first_ground_time,
+    max(case when m.ends_leg and m.next_close then m.next_latitude end) as first_ground_latitude,
+    max(case when m.ends_leg and m.next_close then m.next_longitude end)
+        as first_ground_longitude,
     count(*) as positions,
     sum(m.ground_blip::int) as ground_blips,
     max(m.altitude_m) as max_altitude_m,
@@ -152,25 +163,21 @@ select
     arg_min(m.altitude_m, m.t) as first_altitude_m,
     arg_min(m.vertical_rate_ms, m.t) as first_vertical_rate_ms,
     arg_min(m.speed_ms, m.t) as first_speed_ms,
+    arg_min(m.track_deg, m.t) as first_track_deg,
     arg_max(m.latitude, m.t) as last_latitude,
     arg_max(m.longitude, m.t) as last_longitude,
     arg_max(m.altitude_m, m.t) as last_altitude_m,
     arg_max(m.vertical_rate_ms, m.t) as last_vertical_rate_ms,
-    arg_max(m.speed_ms, m.t) as last_speed_ms
+    arg_max(m.speed_ms, m.t) as last_speed_ms,
+    arg_max(m.track_deg, m.t) as last_track_deg
 from marked m
 left join leg_callsigns c using (icao24, leg_no)
 where m.airborne
 group by m.icao24, m.leg_no, c.callsign
 """
 
-# Great-circle distance between where a piece was last seen and where the next one starts.
-_GAP_DISTANCE_M = f"""
-2 * {EARTH_RADIUS_M} * asin(sqrt(
-    pow(sin(radians(first_latitude - prev_latitude) / 2), 2)
-    + cos(radians(prev_latitude)) * cos(radians(first_latitude))
-    * pow(sin(radians(first_longitude - prev_longitude) / 2), 2)
-))
-"""
+# Distance between where a piece was last seen and where the next one starts.
+_GAP_DISTANCE_M = distance_m("prev_latitude", "prev_longitude", "first_latitude", "first_longitude")
 
 _STITCHED = f"""
 with neighbours as (
@@ -217,7 +224,11 @@ select
     arg_min(start_reason, first_air_time) as start_reason,
     arg_max(end_reason, last_air_time) as end_reason,
     arg_min(last_ground_time, first_air_time) as last_ground_time,
+    arg_min(last_ground_latitude, first_air_time) as last_ground_latitude,
+    arg_min(last_ground_longitude, first_air_time) as last_ground_longitude,
     arg_max(first_ground_time, last_air_time) as first_ground_time,
+    arg_max(first_ground_latitude, last_air_time) as first_ground_latitude,
+    arg_max(first_ground_longitude, last_air_time) as first_ground_longitude,
     sum(positions)::int as positions,
     sum(ground_blips)::int as ground_blips,
     (count(*) - 1)::int as coverage_gaps,
@@ -226,11 +237,14 @@ select
     arg_min(first_longitude, first_air_time) as first_longitude,
     arg_min(first_altitude_m, first_air_time) as first_altitude_m,
     arg_min(first_vertical_rate_ms, first_air_time) as first_vertical_rate_ms,
+    arg_min(first_speed_ms, first_air_time) as first_speed_ms,
+    arg_min(first_track_deg, first_air_time) as first_track_deg,
     arg_max(last_latitude, last_air_time) as last_latitude,
     arg_max(last_longitude, last_air_time) as last_longitude,
     arg_max(last_altitude_m, last_air_time) as last_altitude_m,
     arg_max(last_vertical_rate_ms, last_air_time) as last_vertical_rate_ms,
-    arg_max(last_speed_ms, last_air_time) as last_speed_ms
+    arg_max(last_speed_ms, last_air_time) as last_speed_ms,
+    arg_max(last_track_deg, last_air_time) as last_track_deg
 from numbered
 group by icao24, n
 order by icao24, first_air_time
