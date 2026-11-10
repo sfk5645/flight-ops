@@ -5,7 +5,7 @@ Each call to ingest_snapshot() asks OpenSky for every aircraft's current state (
 
     bronze/opensky_states/date=2026-11-06/1762450200.parquet
 
-The R2 lifecycle rule deletes these after 2 days (see docs/setup.md). Rows that break the
+The R2 lifecycle rule deletes these after 3 days (see docs/setup.md). Rows that break the
 contract go to quarantine/opensky_states/ with a reason.
 
 Data from the OpenSky Network (https://opensky-network.org). Use is subject to its terms:

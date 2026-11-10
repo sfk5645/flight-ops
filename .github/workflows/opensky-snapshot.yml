@@ -2,7 +2,7 @@ name: opensky-snapshot
 
 # Started every 5 minutes by an external timer (cron-job.org) calling the workflow_dispatch
 # API, because GitHub's own schedule fired once in 16 hours when we tried it. Setup steps are
-# in docs/setup.md. ~1,150 of the 4,000 daily OpenSky credits. Raw snapshots expire after 2 days.
+# in docs/setup.md. ~1,150 of the 4,000 daily OpenSky credits. Raw snapshots expire after 3 days.
 on:
   workflow_dispatch:
 

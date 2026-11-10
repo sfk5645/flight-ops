@@ -29,6 +29,15 @@ def test_write_overwrites_when_asked(lake: LakeStorage) -> None:
     assert lake.read_parquet("gold/test/data.parquet").column("x").to_pylist() == [2]
 
 
+def test_read_many_stacks_files_in_order(lake: LakeStorage) -> None:
+    keys = [f"bronze/test/{n}.parquet" for n in range(5)]
+    for n, key in enumerate(keys):
+        lake.write_parquet(key, pa.table({"n": [n], "other": ["x"]}))
+    table = lake.read_parquet_many(keys[::-1], columns=["n"])
+    assert table.column_names == ["n"]
+    assert table.column("n").to_pylist() == [4, 3, 2, 1, 0]
+
+
 def test_exists_and_list_keys(lake: LakeStorage) -> None:
     assert not lake.exists("bronze/a/data.parquet")
     for name in ["a", "b"]:
