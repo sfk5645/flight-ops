@@ -27,6 +27,22 @@ import pyarrow as pa
 from flightops.duck import connect
 from flightops.tracking.geo import distance_m
 
+# The snapshot columns split_legs uses (the rest of the bronze schema can be left unread).
+POSITION_COLUMNS = [
+    "snapshot_time",
+    "icao24",
+    "callsign",
+    "time_position",
+    "latitude",
+    "longitude",
+    "on_ground",
+    "baro_altitude",
+    "geo_altitude",
+    "velocity",
+    "true_track",
+    "vertical_rate",
+]
+
 # A gap longer than this ends a leg. Long enough that one missed 5-minute run (a 10-minute
 # gap) doesn't split a flight, short enough that an unseen landing and turnaround does.
 GAP_S = 20 * 60

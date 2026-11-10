@@ -7,7 +7,7 @@ Two kinds of rule:
 - DAILY_RULES: keep the last N days before today (date=YYYY-MM-DD partitions).
 
 Raw OpenSky snapshots (bronze/opensky_states/) are expired by an R2 lifecycle rule instead
-(2 days, see docs/setup.md). Lifecycle rules count from upload time, which suits data written
+(3 days, see docs/setup.md). Lifecycle rules count from upload time, which suits data written
 once a day, but not BTS, whose months were all uploaded at once.
 
 Only keys that sit inside a recognized partition folder can be deleted; anything else under a
@@ -33,8 +33,10 @@ MONTHLY_RULES: dict[str, int] = {
     "gold/fct_rotations/": BTS_MONTHS,
 }
 
-# Datasets written daily by the live pipeline get added here as they are built (Phase 3+).
-DAILY_RULES: dict[str, int] = {}
+# Datasets written daily by the live pipeline, added as they are built (Phase 3+).
+DAILY_RULES: dict[str, int] = {
+    "silver/tracked_flights/": 90,
+}
 
 _MONTH = re.compile(r"/year=(\d{4})/month=(\d{1,2})/[^/]+$")
 _DAY = re.compile(r"/date=(\d{4}-\d{2}-\d{2})/[^/]+$")

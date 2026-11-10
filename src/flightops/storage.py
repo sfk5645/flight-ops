@@ -7,6 +7,7 @@ Keys follow a Hive-style layout so DuckDB and dbt can read partitions directly:
 from __future__ import annotations
 
 import io
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Literal
 
 import boto3
@@ -48,6 +49,8 @@ class LakeStorage:
             region_name="auto",
             config=Config(
                 retries={"max_attempts": 5, "mode": "standard"},
+                # Enough connections for read_parquet_many's parallel reads.
+                max_pool_connections=32,
                 # boto3 >= 1.36 adds checksum headers by default that R2 may reject;
                 # only send them when an operation requires it.
                 request_checksum_calculation="when_required",
@@ -68,6 +71,18 @@ class LakeStorage:
     def read_parquet(self, key: str, columns: list[str] | None = None) -> pa.Table:
         response = self._client.get_object(Bucket=self.bucket, Key=key)
         return pq.read_table(io.BytesIO(response["Body"].read()), columns=columns)
+
+    def read_parquet_many(
+        self, keys: list[str], columns: list[str] | None = None, *, workers: int = 16
+    ) -> pa.Table:
+        """Read many small files in parallel and stack them, in the order of `keys`.
+
+        Each read is one network round trip, so fetching a day of 5-minute snapshots one at a
+        time takes minutes; boto3 clients are safe to share between threads.
+        """
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            tables = list(pool.map(lambda key: self.read_parquet(key, columns), keys))
+        return pa.concat_tables(tables)
 
     def exists(self, key: str) -> bool:
         try:

@@ -1,0 +1,46 @@
+name: daily
+
+# Started once a day at ~20:00 UTC by an external timer (cron-job.org) calling the
+# workflow_dispatch API (setup in docs/setup.md). By then every flight that took off the
+# previous UTC day has landed. Turns yesterday's snapshots into silver/tracked_flights, then
+# deletes data past its retention window. Both steps are safe to re-run.
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "UTC day to build (YYYY-MM-DD); empty means yesterday"
+        required: false
+        default: ""
+
+concurrency:
+  group: daily
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked --no-dev
+
+      - name: Build yesterday's tracked flights
+        env:
+          DAY: ${{ inputs.date }}
+        run: uv run python -m flightops.flows.compact_snapshots ${DAY:+--date "$DAY"}
+
+      - name: Delete data past its retention window
+        run: uv run python -m flightops.flows.prune_lake
