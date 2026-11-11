@@ -1,4 +1,4 @@
-"""One day of tracked flights: raw snapshots -> legs -> airports -> silver/tracked_flights.
+"""One day of tracked flights: snapshots -> legs -> airports -> flight numbers -> silver.
 
 A flight belongs to the UTC day it took off (its first airborne sighting). To build day D:
 - Snapshots from LOOKBACK before D are read too. A plane already flying at midnight then starts
@@ -20,12 +20,14 @@ import pyarrow.compute as pc
 from flightops.ingestion.opensky import DATASET
 from flightops.storage import LakeStorage, lake_key
 from flightops.tracking.airports import match_airports
+from flightops.tracking.callsigns import add_flight_numbers
 from flightops.tracking.segments import POSITION_COLUMNS, split_legs
 
 log = logging.getLogger(__name__)
 
 LOOKBACK = timedelta(hours=12)
 AIRPORTS_KEY = lake_key("silver", "airports")
+AIRLINES_KEY = lake_key("silver", "airlines")
 
 # 288 five-minute snapshots make a full day; fewer means runs were missed.
 SNAPSHOTS_PER_DAY = 288
@@ -54,9 +56,11 @@ def _snapshot_time(key: str) -> int:
     return int(key.rsplit("/", 1)[1].removesuffix(".parquet"))
 
 
-def build_tracked_flights(positions: pa.Table, airports: pa.Table, day: date) -> pa.Table:
-    """Legs with airports and times for the flights that took off on `day`."""
-    flights = match_airports(split_legs(positions), airports)
+def build_tracked_flights(
+    positions: pa.Table, airports: pa.Table, airlines: pa.Table, day: date
+) -> pa.Table:
+    """Legs with airports, times and flight numbers for the flights that took off on `day`."""
+    flights = add_flight_numbers(match_airports(split_legs(positions), airports), airlines)
     start, end = _start_of(day), _start_of(day + timedelta(days=1))
     took_off = flights.column("first_air_time")
     keep = pc.and_(pc.greater_equal(took_off, start), pc.less(took_off, end))
@@ -73,7 +77,8 @@ def compact_day(lake: LakeStorage, day: date) -> pa.Table:
         log.warning("only %d of %d snapshots for %s", on_day, SNAPSHOTS_PER_DAY, day)
 
     positions = lake.read_parquet_many(keys, columns=POSITION_COLUMNS)
-    flights = build_tracked_flights(positions, lake.read_parquet(AIRPORTS_KEY), day)
+    airports, airlines = lake.read_parquet(AIRPORTS_KEY), lake.read_parquet(AIRLINES_KEY)
+    flights = build_tracked_flights(positions, airports, airlines, day)
     lake.write_parquet(tracked_flights_key(day), flights, overwrite=True)
 
     still_flying = pc.sum(pc.equal(flights.column("end_reason"), "still_flying")).as_py() or 0
