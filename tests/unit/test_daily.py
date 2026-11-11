@@ -7,7 +7,13 @@ import pytest
 
 from flightops.ingestion.opensky import SCHEMA, snapshot_key
 from flightops.storage import LakeStorage
-from flightops.tracking.daily import AIRPORTS_KEY, compact_day, snapshot_keys, tracked_flights_key
+from flightops.tracking.daily import (
+    AIRLINES_KEY,
+    AIRPORTS_KEY,
+    compact_day,
+    snapshot_keys,
+    tracked_flights_key,
+)
 
 DAY = date(2026, 11, 9)
 MIDNIGHT = datetime(2026, 11, 9, tzinfo=UTC)
@@ -24,6 +30,7 @@ AIRPORTS = pa.table(
         "elevation_ft": [1026, 21],
     }
 )
+AIRLINES = pa.table({"airline_id": [1], "icao": ["DAL"], "iata": ["DL"], "active": [True]})
 
 
 def at(hours: float) -> int:
@@ -69,6 +76,7 @@ def store(lake: LakeStorage, *tracks: list[dict[str, Any]]) -> None:
     for t, rows in by_time.items():
         lake.write_parquet(snapshot_key(t), pa.Table.from_pylist(rows, schema=SCHEMA))
     lake.write_parquet(AIRPORTS_KEY, AIRPORTS, overwrite=True)
+    lake.write_parquet(AIRLINES_KEY, AIRLINES, overwrite=True)
 
 
 def test_reads_from_twelve_hours_before_through_the_next_day(lake: LakeStorage) -> None:
@@ -88,6 +96,7 @@ def test_keeps_the_flights_that_took_off_that_day(lake: LakeStorage) -> None:
 
     assert set(flights) == {"a00001", "c00003"}
     assert (flights["a00001"]["origin"], flights["a00001"]["dest"]) == ("ATL", "LGA")
+    assert (flights["a00001"]["carrier"], flights["a00001"]["flight_number"]) == ("DL", 1184)
     late = flights["c00003"]
     assert (late["end_reason"], late["dest"]) == ("landing_seen", "LGA")
     assert late["first_ground_time"] == MIDNIGHT + timedelta(hours=25, minutes=5)
