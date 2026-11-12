@@ -16,6 +16,9 @@ vars:
   schedule_min_times_seen: 3     # a time must repeat this often to count as the schedule
   schedule_tolerance_min: 5      # "correct" means within this many minutes
   schedule_backtest_months: 6    # latest months to measure the match rate on
+  # Delay models (training_set)
+  bts_lag_months: 3              # newest BTS month known at prediction time: through all of
+                                 # month M only M-3 is certain (M-2 arrives mid-month)
 
 models:
   flightops:
