@@ -31,6 +31,9 @@ MONTHLY_RULES: dict[str, int] = {
     "silver/bts_flights/": BTS_MONTHS,
     "quarantine/bts_flights/": BTS_MONTHS,
     "gold/fct_rotations/": BTS_MONTHS,
+    "bronze/iem_metar/": BTS_MONTHS,
+    "silver/airport_weather/": BTS_MONTHS,
+    "quarantine/airport_weather/": BTS_MONTHS,
 }
 
 # Datasets written daily by the live pipeline, added as they are built (Phase 3+).

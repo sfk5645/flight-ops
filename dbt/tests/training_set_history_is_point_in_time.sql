@@ -6,6 +6,7 @@
 --                              (prediction = 2 hours before scheduled departure)
 --   inbound pattern            only rotations from the 7 days before, whose later leg took off
 --                              before the prediction time
+--   origin weather             the latest report at least 10 minutes before the prediction time
 -- A feature that leaked newer flights (for example the flight's own month, or takeoffs after
 -- the prediction time) would differ.
 with sample as (
@@ -62,7 +63,14 @@ recomputed as (
                     and f.dep_utc + to_minutes(f.taxi_out_min) < w.sched_dep_utc - interval 2 hour
                 group by p.carrier, p.flight_number, p.origin
             )
-        ) as inbound_days_check
+        ) as inbound_days_check,
+        w.origin_wx_age_min,
+        (
+            select date_diff('minute', max(x.observed_utc), w.sched_dep_utc - interval 2 hour)
+            from {{ ref('stg_airport_weather') }} as x
+            where x.airport = w.origin
+                and x.observed_utc <= w.sched_dep_utc - interval 2 hour - interval 10 minute
+        ) as origin_wx_age_check
     from windows as w
 )
 
@@ -74,3 +82,4 @@ where abs(route_delay_3m - route_check) > 0.051
     or route_check is null
     or origin_deps_3h is distinct from origin_deps_check
     or inbound_days_same is distinct from inbound_days_check
+    or origin_wx_age_min is distinct from origin_wx_age_check
