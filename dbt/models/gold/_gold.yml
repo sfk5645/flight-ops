@@ -115,3 +115,46 @@ models:
                 field: flight_id
       - name: chain_ok
         data_tests: [not_null]
+
+  - name: training_set
+    description: >
+      Pre-departure model training rows: one per completed flight, with inputs known 2 hours
+      before scheduled departure and the label arr_delay_min. Delay history uses only BTS months
+      published by then (bts_lag_months before the flight's month), so the first months of the
+      window have no history. Identified by carrier, flight_number, origin, dest and
+      sched_dep_utc (flight_id is md5 of these; not stored to keep the table small).
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "carrier || '|' || flight_number || '|' || origin || '|' || dest || '|' || sched_dep_utc"
+    columns:
+      - name: arr_delay_min
+        data_tests: [not_null]
+      - name: carrier
+        data_tests: [not_null]
+      - name: origin
+        data_tests: [not_null]
+      - name: dest
+        data_tests: [not_null]
+      - name: sched_dep_hour_local
+        data_tests: [not_null]
+      - name: sched_arr_hour_local
+        data_tests: [not_null]
+      - name: days_to_holiday
+        description: Signed days to the nearest US federal holiday (positive while it's ahead).
+        data_tests: [not_null]
+      - name: inbound_days_same
+        description: >
+          Days out of the last 7 that the guessed inbound flight brought the plane in (the guess's
+          confidence); null when the flight has no rotation in the last 7 days.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5, 6, 7]
+                quote: false
+      - name: inbound_status
+        description: Where the guessed inbound flight was at prediction time.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [landed, airborne, not_seen]
