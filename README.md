@@ -43,4 +43,5 @@ uv run --env-file .env python -m flightops.flows.prune_lake
 - US flight history: [BTS On-Time Performance](https://www.transtats.bts.gov/) (US Department of Transportation)
 - Airports: [OurAirports](https://ourairports.com/data/); airlines: [OpenFlights](https://openflights.org/data)
 - Live aircraft positions: [The OpenSky Network](https://opensky-network.org), used under its terms for non-profit research and education. Matthias Schäfer, Martin Strohmeier, Vincent Lenders, Ivan Martinovic and Matthias Wilhelm. "Bringing up OpenSky: A large-scale ADS-B sensor network for research". In *Proceedings of the 13th IEEE/ACM International Symposium on Information Processing in Sensor Networks (IPSN)*, pages 83–94, April 2014.
+- Airport weather history: [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/), Iowa State University (ASOS/METAR archive)
 - Historical aircraft positions (landing validation): [adsb.lol](https://adsb.lol) daily history, [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/)

@@ -14,3 +14,7 @@ sources:
         description: One row per IATA airport code, with IANA time zone.
       - name: airlines
         description: Airline IATA/ICAO codes and radio callsigns (OpenFlights).
+      - name: airport_weather
+        description: >
+          One row per airport weather report (METAR, Iowa Environmental Mesonet archive), with the
+          flags the models use. Partitioned by year and month.

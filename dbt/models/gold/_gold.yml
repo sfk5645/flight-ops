@@ -158,3 +158,19 @@ models:
           - accepted_values:
               arguments:
                 values: [landed, airborne, not_seen]
+      - name: origin_flight_category
+        description: >
+          Latest origin weather report published by prediction time: 0 = VFR (clear) .. 3 = LIFR
+          (very low cloud or fog). Null when the station had no report in the last 3 hours.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 3]
+                quote: false
+      - name: dest_flight_category
+        description: As origin_flight_category, at the destination.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 3]
+                quote: false

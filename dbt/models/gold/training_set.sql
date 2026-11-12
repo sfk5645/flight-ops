@@ -14,6 +14,7 @@
 --   delay history        only BTS months published by then (see macros/history.sql)
 --   airport traffic      takeoffs / landings in the 3 whole hours before the prediction hour
 --   inbound aircraft     a guess from the last 7 days of rotations, and where that flight is now
+--   weather              the latest report at each airport, published by then
 -- tests/training_set_history_is_point_in_time.sql recomputes a sample from scratch to prove it.
 with flights as (
     select
@@ -298,6 +299,59 @@ inbound as (
     left join typical_air_time as a using (in_origin, origin, month_index)
     left join typical_taxi_in as x using (origin, month_index)
 )
+,
+
+-- Weather at both airports: the latest report observed at least 10 minutes before the
+-- prediction time (reports take a few minutes to be published), and the one from 3 hours
+-- before that, to see whether conditions are getting worse. Flight category as a number,
+-- 0 = VFR (clear) .. 3 = LIFR (very low cloud or fog). A report more than 3 hours old means the
+-- station went quiet; its values are left out rather than shown as current.
+weather as (
+    select
+        airport,
+        observed_utc,
+        case flight_category
+            when 'VFR' then 0 when 'MVFR' then 1 when 'IFR' then 2 when 'LIFR' then 3
+        end::tinyint as category,
+        thunderstorm,
+        snow_or_ice,
+        wind_kt,
+        gust_kt
+    from {{ ref('stg_airport_weather') }}
+),
+
+flight_times as (
+    select distinct origin, dest, prediction_time,
+        prediction_time - interval 10 minute as known_by,
+        prediction_time - interval 10 minute - interval 3 hour as known_by_3h
+    from completed
+),
+
+weather_now as (
+    select
+        f.origin,
+        f.dest,
+        f.prediction_time,
+        {%- for end in ['origin', 'dest'] %}
+        date_diff('minute', {{ end }}_now.observed_utc, f.prediction_time) as {{ end }}_wx_age_min,
+        {{ end }}_now.observed_utc > f.known_by - interval 3 hour as {{ end }}_fresh,
+        {{ end }}_now.category as {{ end }}_category,
+        {{ end }}_now.thunderstorm as {{ end }}_thunderstorm,
+        {{ end }}_now.snow_or_ice as {{ end }}_snow_or_ice,
+        {{ end }}_now.wind_kt as {{ end }}_wind_kt,
+        {{ end }}_now.gust_kt as {{ end }}_gust_kt,
+        case when {{ end }}_before.observed_utc > f.known_by_3h - interval 3 hour
+            then {{ end }}_before.category end as {{ end }}_category_3h_ago
+        {%- if not loop.last %},{% endif %}
+        {%- endfor %}
+    from flight_times as f
+    {%- for end in ['origin', 'dest'] %}
+    asof left join weather as {{ end }}_now
+        on {{ end }}_now.airport = f.{{ end }} and {{ end }}_now.observed_utc <= f.known_by
+    asof left join weather as {{ end }}_before
+        on {{ end }}_before.airport = f.{{ end }} and {{ end }}_before.observed_utc <= f.known_by_3h
+    {%- endfor %}
+)
 
 -- Averages are rounded (minutes to 0.1, shares and ratios to 0.001) and stored as 4-byte
 -- floats: full doubles don't compress and add nothing a model can use.
@@ -348,6 +402,24 @@ select
     ib.status as inbound_status,
     ib.buffer_min as inbound_buffer_min,
 
+    -- weather at both airports (latest report published by prediction time)
+    wx.origin_wx_age_min,
+    case when wx.origin_fresh then wx.origin_category end as origin_flight_category,
+    case when wx.origin_fresh then wx.origin_category - wx.origin_category_3h_ago end
+        as origin_category_change_3h,
+    case when wx.origin_fresh then wx.origin_thunderstorm end as origin_thunderstorm,
+    case when wx.origin_fresh then wx.origin_snow_or_ice end as origin_snow_or_ice,
+    case when wx.origin_fresh then wx.origin_wind_kt end as origin_wind_kt,
+    case when wx.origin_fresh then wx.origin_gust_kt end as origin_gust_kt,
+    wx.dest_wx_age_min,
+    case when wx.dest_fresh then wx.dest_category end as dest_flight_category,
+    case when wx.dest_fresh then wx.dest_category - wx.dest_category_3h_ago end
+        as dest_category_change_3h,
+    case when wx.dest_fresh then wx.dest_thunderstorm end as dest_thunderstorm,
+    case when wx.dest_fresh then wx.dest_snow_or_ice end as dest_snow_or_ice,
+    case when wx.dest_fresh then wx.dest_wind_kt end as dest_wind_kt,
+    case when wx.dest_fresh then wx.dest_gust_kt end as dest_gust_kt,
+
     -- label
     c.arr_delay_min,
 
@@ -372,4 +444,6 @@ left join traffic_now as dt on dt.airport = c.dest and dt.hour_utc = c.predictio
 left join inbound as ib
     on ib.carrier = c.carrier and ib.flight_number = c.flight_number
     and ib.origin = c.origin and ib.dest = c.dest and ib.sched_dep_utc = c.sched_dep_utc
+left join weather_now as wx
+    on wx.origin = c.origin and wx.dest = c.dest and wx.prediction_time = c.prediction_time
 order by c.year, c.month, c.sched_dep_utc, c.carrier, c.flight_number
