@@ -19,6 +19,13 @@ vars:
   # Delay models (training_set)
   bts_lag_months: 3              # newest BTS month known at prediction time: through all of
                                  # month M only M-3 is certain (M-2 arrives mid-month)
+  prediction_lead_min: 60        # predictions are made this many minutes before scheduled
+                                 # departure; every training_set input is known by then.
+                                 # 60 chosen Nov 2026: 2 h -> 1 h cut P50 error 26.4 -> 25.4,
+                                 # 30 min only to 24.9 and is most exposed to tracking lag
+  training_set_location: ""      # empty = gold/training_set in the lake; experiments with
+                                 # another lead write a local copy instead, e.g.
+                                 # --vars '{prediction_lead_min: 60, training_set_location: /path}'
 
 models:
   flightops:

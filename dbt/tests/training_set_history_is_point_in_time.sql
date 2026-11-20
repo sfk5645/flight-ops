@@ -3,10 +3,12 @@
 --   route and carrier history  only flights dated in the 3 published months (M-5 .. M-3 for a
 --                              flight in month M)
 --   origin takeoffs            only takeoffs in the 3 whole hours before the prediction hour
---                              (prediction = 2 hours before scheduled departure)
+--                              (prediction = prediction_lead_min before departure)
 --   inbound pattern            only rotations from the 7 days before, whose later leg took off
 --                              before the prediction time
 --   origin weather             the latest report at least 10 minutes before the prediction time
+--   origin lateness            takeoffs in the 3 whole hours before the prediction hour, each
+--                              compared only with the same flight's previous 7 days
 -- A feature that leaked newer flights (for example the flight's own month, or takeoffs after
 -- the prediction time) would differ.
 with sample as (
@@ -22,8 +24,38 @@ windows as (
             as window_start,
         (date_trunc('month', flight_date) - to_months({{ var('bts_lag_months') }} - 1))::date
             as window_end,
-        date_trunc('hour', sched_dep_utc - interval 2 hour) as prediction_hour
+        date_trunc('hour', sched_dep_utc - to_minutes({{ var('prediction_lead_min') }})) as prediction_hour
     from sample
+),
+
+legs as (
+    select
+        carrier, flight_number, origin, flight_date,
+        dep_utc + to_minutes(taxi_out_min) as takeoff_utc,
+        (epoch(dep_utc + to_minutes(taxi_out_min))::bigint // 60 % 1440)::integer as tod
+    from {{ ref('fct_flights_hist') }}
+    where status <> 'cancelled' and taxi_out_min is not null
+),
+
+origin_lateness as (
+    select w.carrier, w.flight_number, w.sched_dep_utc, avg(late) as origin_dep_late_check
+    from windows as w
+    join (
+        select l.origin, l.takeoff_utc, least(greatest(median(
+            ((l.tod - p.tod + 720) % 1440 + 1440) % 1440 - 720), -60), 240) as late
+        from legs as l
+        join legs as p
+            on p.carrier = l.carrier and p.flight_number = l.flight_number
+            and p.origin = l.origin
+            and p.flight_date between l.flight_date - 7 and l.flight_date - 1
+        where l.origin in (select origin from windows)
+        group by l.carrier, l.flight_number, l.origin, l.flight_date, l.takeoff_utc, l.tod
+        having count(*) >= 3
+    ) as x
+        on x.origin = w.origin
+        and x.takeoff_utc >= w.prediction_hour - interval 3 hour
+        and x.takeoff_utc < w.prediction_hour
+    group by all
 ),
 
 recomputed as (
@@ -60,18 +92,21 @@ recomputed as (
                 where r.chain_ok and f.carrier = w.carrier and f.flight_number = w.flight_number
                     and f.origin = w.origin and f.dest = w.dest
                     and f.flight_date between w.flight_date - 7 and w.flight_date - 1
-                    and f.dep_utc + to_minutes(f.taxi_out_min) < w.sched_dep_utc - interval 2 hour
+                    and f.dep_utc + to_minutes(f.taxi_out_min) < w.sched_dep_utc - to_minutes({{ var('prediction_lead_min') }})
                 group by p.carrier, p.flight_number, p.origin
             )
         ) as inbound_days_check,
         w.origin_wx_age_min,
         (
-            select date_diff('minute', max(x.observed_utc), w.sched_dep_utc - interval 2 hour)
+            select date_diff('minute', max(x.observed_utc), w.sched_dep_utc - to_minutes({{ var('prediction_lead_min') }}))
             from {{ ref('stg_airport_weather') }} as x
             where x.airport = w.origin
-                and x.observed_utc <= w.sched_dep_utc - interval 2 hour - interval 10 minute
-        ) as origin_wx_age_check
+                and x.observed_utc <= w.sched_dep_utc - to_minutes({{ var('prediction_lead_min') }}) - interval 10 minute
+        ) as origin_wx_age_check,
+        w.origin_dep_late_3h,
+        ol.origin_dep_late_check
     from windows as w
+    left join origin_lateness as ol using (carrier, flight_number, sched_dep_utc)
 )
 
 select *
@@ -83,3 +118,6 @@ where abs(route_delay_3m - route_check) > 0.051
     or origin_deps_3h is distinct from origin_deps_check
     or inbound_days_same is distinct from inbound_days_check
     or origin_wx_age_min is distinct from origin_wx_age_check
+    -- stored rounded to 0.1 minutes
+    or abs(origin_dep_late_3h - origin_dep_late_check) > 0.051
+    or (origin_dep_late_3h is null) <> (origin_dep_late_check is null)

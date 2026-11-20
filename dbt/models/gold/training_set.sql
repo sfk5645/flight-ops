@@ -1,6 +1,6 @@
 {{
     config(
-        location=var('lake') ~ '/gold/training_set',
+        location=var('training_set_location') or var('lake') ~ '/gold/training_set',
         options={'partition_by': 'year, month', 'overwrite_or_ignore': true},
     )
 }}
@@ -9,10 +9,12 @@
 -- (arr_delay_min). Cancelled and diverted flights have no arrival delay; they stay in
 -- fct_flights_hist with their status.
 --
--- Every input must be known at prediction time (2 hours before scheduled departure):
+-- Every input must be known at prediction time (prediction_lead_min before scheduled departure,
+-- 1 hour):
 --   the flight itself    from the schedule the user enters
 --   delay history        only BTS months published by then (see macros/history.sql)
 --   airport traffic      takeoffs / landings in the 3 whole hours before the prediction hour
+--   today's lateness     how late those takeoffs / landings (and the airline's) ran vs usual
 --   inbound aircraft     a guess from the last 7 days of rotations, and where that flight is now
 --   weather              the latest report at each airport, published by then
 -- tests/training_set_history_is_point_in_time.sql recomputes a sample from scratch to prove it.
@@ -25,8 +27,8 @@ with flights as (
         air_time_min, sched_elapsed_min, distance_mi,
         year * 12 + month - 1 as month_index,
         hour(timezone(dest_tz, sched_arr_utc)) as sched_arr_hour_local,
-        sched_dep_utc - interval 2 hour as prediction_time,
-        date_trunc('hour', sched_dep_utc - interval 2 hour) as prediction_hour,
+        sched_dep_utc - to_minutes({{ var('prediction_lead_min') }}) as prediction_time,
+        date_trunc('hour', sched_dep_utc - to_minutes({{ var('prediction_lead_min') }})) as prediction_hour,
         -- the moments our live tracking detects
         dep_utc + to_minutes(taxi_out_min) as takeoff_utc,
         arr_utc - to_minutes(taxi_in_min) as landing_utc
@@ -66,6 +68,58 @@ holidays as (
     group by d.flight_date
 ),
 
+-- Today's lateness: how late each flight took off and landed compared with its usual time over
+-- the previous 7 days (live: the same callsign's takeoffs and landings in our tracking, which
+-- knows the departure airport at takeoff and the arrival airport at landing, hence the keys).
+-- Times are compared as time of day, wrapping at midnight (23:55 vs 00:05 is 10 minutes), the
+-- median over the previous days is taken, and the result is capped at -60..240 minutes so a few
+-- extreme cases don't dominate averages. Needs at least 3 previous days.
+leg_times as (
+    select
+        flight_id,
+        flight_date,
+        hash(carrier, flight_number, origin) as dep_key,
+        hash(carrier, flight_number, dest) as arr_key,
+        (epoch(takeoff_utc)::bigint // 60 % 1440)::integer as takeoff_tod,
+        (epoch(landing_utc)::bigint // 60 % 1440)::integer as landing_tod
+    from flights
+    where status <> 'cancelled' and takeoff_utc is not null
+),
+
+usual_times as (
+    select
+        flight_id,
+        takeoff_tod,
+        landing_tod,
+        list(takeoff_tod) over (
+            partition by dep_key order by flight_date
+            range between interval 7 day preceding and interval 1 day preceding
+        ) as usual_takeoffs,
+        list_filter(
+            list(landing_tod) over (
+                partition by arr_key order by flight_date
+                range between interval 7 day preceding and interval 1 day preceding
+            ),
+            lambda x: x is not null
+        ) as usual_landings
+    from leg_times
+),
+
+lateness as (
+    select
+        flight_id,
+        case when len(usual_takeoffs) >= 3 then least(greatest(list_aggregate(
+            list_transform(usual_takeoffs, lambda x: ((takeoff_tod - x + 720) % 1440 + 1440) % 1440 - 720),
+            'median'), -60), 240)
+        end as dep_late_min,
+        case when len(usual_landings) >= 3 and landing_tod is not null then least(greatest(
+            list_aggregate(
+                list_transform(usual_landings, lambda x: ((landing_tod - x + 720) % 1440 + 1440) % 1440 - 720),
+                'median'), -60), 240)
+        end as arr_late_min
+    from usual_times
+),
+
 -- Airport traffic: how many planes took off from (or landed at) each airport in the 3 whole
 -- hours before the prediction hour, and how many is normal for that airport, local weekday and
 -- hour. A slowdown (ratio well under 1) is the clearest sign of storms, ground stops or
@@ -73,13 +127,21 @@ holidays as (
 -- flights of the same 12 BTS carriers, so the ratio is comparable even though tracking misses
 -- about 10% of flights.
 movements as (
-    select origin as airport, date_trunc('hour', takeoff_utc) as hour_utc, 1 as deps, 0 as arrs
-    from flights
-    where status <> 'cancelled' and takeoff_utc is not null
+    select
+        f.origin as airport,
+        date_trunc('hour', f.takeoff_utc) as hour_utc,
+        1 as deps,
+        0 as arrs,
+        l.dep_late_min as dep_late,
+        null::double as arr_late
+    from flights as f
+    left join lateness as l using (flight_id)
+    where f.status <> 'cancelled' and f.takeoff_utc is not null
     union all
-    select dest, date_trunc('hour', landing_utc), 0, 1
-    from flights
-    where status = 'completed' and landing_utc is not null
+    select f.dest, date_trunc('hour', f.landing_utc), 0, 1, null, l.arr_late_min
+    from flights as f
+    left join lateness as l using (flight_id)
+    where f.status = 'completed' and f.landing_utc is not null
 ),
 
 -- Every airport and every hour, so hours with no traffic count as zero.
@@ -105,10 +167,24 @@ traffic as (
         hour(timezone(h.tz, h.hour_utc)) as hour_local,
         -- the 3 whole hours before this hour
         sum(coalesce(m.deps, 0)) over w as deps_3h,
-        sum(coalesce(m.arrs, 0)) over w as arrs_3h
+        sum(coalesce(m.arrs, 0)) over w as arrs_3h,
+        sum(m.dep_late_total) over w / nullif(sum(m.dep_late_n) over w, 0) as dep_late_3h,
+        sum(m.dep_late15) over w / nullif(sum(m.dep_late_n) over w, 0) as dep_late15_3h,
+        sum(m.arr_late_total) over w / nullif(sum(m.arr_late_n) over w, 0) as arr_late_3h,
+        sum(m.arr_late15) over w / nullif(sum(m.arr_late_n) over w, 0) as arr_late15_3h
     from airport_hours as h
     left join (
-        select airport, hour_utc, sum(deps) as deps, sum(arrs) as arrs
+        select
+            airport,
+            hour_utc,
+            sum(deps) as deps,
+            sum(arrs) as arrs,
+            sum(dep_late) as dep_late_total,
+            count(dep_late) as dep_late_n,
+            count_if(dep_late > 15) as dep_late15,
+            sum(arr_late) as arr_late_total,
+            count(arr_late) as arr_late_n,
+            count_if(arr_late > 15) as arr_late15
         from movements
         group by all
     ) as m using (airport, hour_utc)
@@ -142,9 +218,39 @@ traffic_normal as (
 ),
 
 traffic_now as (
-    select t.airport, t.hour_utc, t.deps_3h, t.arrs_3h, n.deps_3h_normal, n.arrs_3h_normal
+    select
+        t.airport, t.hour_utc, t.deps_3h, t.arrs_3h, n.deps_3h_normal, n.arrs_3h_normal,
+        t.dep_late_3h, t.dep_late15_3h, t.arr_late_3h, t.arr_late15_3h
     from traffic as t
     left join traffic_normal as n using (airport, weekday_local, hour_local, month_index)
+),
+
+-- The airline's lateness across the whole network in the same 3 hours: catches airline-wide
+-- problems (IT outages, crew shortages) that no single airport shows.
+carrier_hourly as (
+    select
+        f.carrier,
+        date_trunc('hour', f.takeoff_utc) as hour_utc,
+        sum(l.dep_late_min) as total,
+        count(l.dep_late_min) as n,
+        count_if(l.dep_late_min > 15) as late15
+    from flights as f
+    join lateness as l using (flight_id)
+    group by all
+),
+
+carrier_now as (
+    select
+        t.carrier,
+        t.prediction_hour,
+        sum(h.total) / nullif(sum(h.n), 0) as dep_late_3h,
+        sum(h.late15) / nullif(sum(h.n), 0) as dep_late15_3h
+    from (select distinct carrier, prediction_hour from completed) as t
+    join carrier_hourly as h
+        on h.carrier = t.carrier
+        and h.hour_utc >= t.prediction_hour - interval 3 hour
+        and h.hour_utc < t.prediction_hour
+    group by all
 ),
 
 -- Inbound aircraft. Live, nothing free says which plane will fly a flight, so the model gets a
@@ -397,6 +503,14 @@ select
     round(dt.arrs_3h_normal, 1)::float as dest_arrs_3h_normal,
     round(dt.arrs_3h / nullif(dt.arrs_3h_normal, 0), 3)::float as dest_arrs_3h_ratio,
 
+    -- today's lateness in the same 3 hours: average minutes late vs usual, share > 15 late
+    round(ot.dep_late_3h, 1)::float as origin_dep_late_3h,
+    round(ot.dep_late15_3h, 3)::float as origin_dep_late15_3h,
+    round(dt.arr_late_3h, 1)::float as dest_arr_late_3h,
+    round(dt.arr_late15_3h, 3)::float as dest_arr_late15_3h,
+    round(cn.dep_late_3h, 1)::float as carrier_dep_late_3h,
+    round(cn.dep_late15_3h, 3)::float as carrier_dep_late15_3h,
+
     -- inbound aircraft (guessed; null when the flight has no rotation in the last 7 days)
     ib.days_same as inbound_days_same,
     ib.status as inbound_status,
@@ -441,6 +555,8 @@ left join dest_hour_history as dh
     and dh.month_index = c.month_index
 left join traffic_now as ot on ot.airport = c.origin and ot.hour_utc = c.prediction_hour
 left join traffic_now as dt on dt.airport = c.dest and dt.hour_utc = c.prediction_hour
+left join carrier_now as cn
+    on cn.carrier = c.carrier and cn.prediction_hour = c.prediction_hour
 left join inbound as ib
     on ib.carrier = c.carrier and ib.flight_number = c.flight_number
     and ib.origin = c.origin and ib.dest = c.dest and ib.sched_dep_utc = c.sched_dep_utc

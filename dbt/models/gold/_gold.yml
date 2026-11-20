@@ -118,9 +118,9 @@ models:
 
   - name: training_set
     description: >
-      Pre-departure model training rows: one per completed flight, with inputs known 2 hours
-      before scheduled departure and the label arr_delay_min. Delay history uses only BTS months
-      published by then (bts_lag_months before the flight's month), so the first months of the
+      Pre-departure model training rows: one per completed flight, with inputs known
+      prediction_lead_min (1 hour) before scheduled departure and the label
+      arr_delay_min. Delay history uses only BTS months published by then (bts_lag_months before the flight's month), so the first months of the
       window have no history. Identified by carrier, flight_number, origin, dest and
       sched_dep_utc (flight_id is md5 of these; not stored to keep the table small).
     data_tests:

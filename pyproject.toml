@@ -9,6 +9,8 @@ dependencies = [
     "dbt-duckdb>=1.11.1",
     "duckdb>=2.0.0",
     "httpx>=0.28.1",
+    "lightgbm>=4.7.0",
+    "pandas>=3.1.1",
     "pyarrow>=17",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
@@ -20,6 +22,7 @@ dev = [
     "boto3-stubs[s3]>=1.36",
     "moto[s3]>=5.0",
     "mypy>=1.13",
+    "pandas-stubs>=3.1.0.261029",
     "pytest>=8.3",
     "ruff>=0.8",
 ]
