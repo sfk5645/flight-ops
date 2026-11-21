@@ -12,6 +12,8 @@ flightops:
       extensions: [httpfs]
       settings:
         TimeZone: UTC
+        # a runaway query spilled 52 GB to the laptop's disk once; fail early instead
+        max_temp_directory_size: 20GB
       secrets:
         - type: r2
           key_id: "{{ env_var('R2_ACCESS_KEY_ID') }}"

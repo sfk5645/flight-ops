@@ -5,7 +5,8 @@
 --   origin takeoffs            only takeoffs in the 3 whole hours before the prediction hour
 --                              (prediction = prediction_lead_min before departure)
 --   inbound pattern            only rotations from the 7 days before, whose later leg took off
---                              before the prediction time
+--                              before the prediction time (days of the picked candidate can't
+--                              exceed the most-seen candidate's)
 --   origin weather             the latest report at least 10 minutes before the prediction time
 --   origin lateness            takeoffs in the 3 whole hours before the prediction hour, each
 --                              compared only with the same flight's previous 7 days
@@ -37,18 +38,28 @@ legs as (
     where status <> 'cancelled' and taxi_out_min is not null
 ),
 
+-- Only the takeoffs inside a sampled flight's 3-hour window are rechecked (comparing every
+-- takeoff at those airports over 2 years ran out of memory); that is all the check needs.
+window_legs as (
+    select distinct l.*
+    from legs as l
+    join windows as w
+        on l.origin = w.origin
+        and l.takeoff_utc >= w.prediction_hour - interval 3 hour
+        and l.takeoff_utc < w.prediction_hour
+),
+
 origin_lateness as (
     select w.carrier, w.flight_number, w.sched_dep_utc, avg(late) as origin_dep_late_check
     from windows as w
     join (
         select l.origin, l.takeoff_utc, least(greatest(median(
             ((l.tod - p.tod + 720) % 1440 + 1440) % 1440 - 720), -60), 240) as late
-        from legs as l
+        from window_legs as l
         join legs as p
             on p.carrier = l.carrier and p.flight_number = l.flight_number
             and p.origin = l.origin
             and p.flight_date between l.flight_date - 7 and l.flight_date - 1
-        where l.origin in (select origin from windows)
         group by l.carrier, l.flight_number, l.origin, l.flight_date, l.takeoff_utc, l.tod
         having count(*) >= 3
     ) as x
@@ -116,7 +127,9 @@ where abs(route_delay_3m - route_check) > 0.051
     or abs(carrier_delay_3m - carrier_check) > 0.051
     or route_check is null
     or origin_deps_3h is distinct from origin_deps_check
-    or inbound_days_same is distinct from inbound_days_check
+    -- the today check may pick a candidate seen on fewer days, never more than the most
+    or inbound_days_same > inbound_days_check
+    or (inbound_days_same is null) <> (inbound_days_check is null)
     or origin_wx_age_min is distinct from origin_wx_age_check
     -- stored rounded to 0.1 minutes
     or abs(origin_dep_late_3h - origin_dep_late_check) > 0.051
