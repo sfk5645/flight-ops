@@ -45,13 +45,13 @@ def track_points_key(day: date) -> str:
     return lake_key("silver", "track_points", date=day.isoformat())
 
 
-def _start_of(day: date) -> datetime:
+def start_of(day: date) -> datetime:
     return datetime.combine(day, time(), tzinfo=UTC)
 
 
 def snapshot_keys(lake: LakeStorage, day: date) -> list[str]:
     """Snapshot keys from LOOKBACK before `day` through the end of the next day, in time order."""
-    first = int((_start_of(day) - LOOKBACK).timestamp())
+    first = int((start_of(day) - LOOKBACK).timestamp())
     keys = []
     for d in (day - timedelta(days=1), day, day + timedelta(days=1)):
         prefix = f"bronze/{DATASET}/date={d.isoformat()}/"
@@ -69,7 +69,7 @@ def build_tracked_flights(
 ) -> pa.Table:
     """Legs with airports, times and flight numbers for the flights that took off on `day`."""
     flights = add_flight_numbers(match_airports(split_legs(positions), airports), airlines)
-    start, end = _start_of(day), _start_of(day + timedelta(days=1))
+    start, end = start_of(day), start_of(day + timedelta(days=1))
     took_off = flights.column("first_air_time")
     keep = pc.and_(pc.greater_equal(took_off, start), pc.less(took_off, end))
     return flights.filter(keep)

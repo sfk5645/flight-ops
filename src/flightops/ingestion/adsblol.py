@@ -21,6 +21,7 @@ import gzip
 import io
 import itertools
 import json
+import os
 import tarfile
 from collections.abc import Iterable, Iterator
 from concurrent.futures import Future, ProcessPoolExecutor
@@ -167,9 +168,14 @@ class _ChunkReader(io.RawIOBase):
 
 def archive_urls(day: date) -> list[str]:
     """Download links of the day's archive parts, in order (.tar.aa, .tar.ab, ...)."""
+    headers = {"User-Agent": USER_AGENT}
+    # GitHub's API allows 60 anonymous requests an hour per IP, shared by every job on a
+    # GitHub Actions runner; the workflow's own token raises that.
+    if token := os.environ.get("GITHUB_TOKEN"):
+        headers["Authorization"] = f"Bearer {token}"
     response = httpx.get(
         RELEASE_URL.format(year=day.year, day=day),
-        headers={"User-Agent": USER_AGENT},
+        headers=headers,
         follow_redirects=True,
         timeout=60,
     )

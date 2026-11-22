@@ -40,6 +40,8 @@ MONTHLY_RULES: dict[str, int] = {
 DAILY_RULES: dict[str, int] = {
     "silver/tracked_flights/": 90,
     "silver/track_points/": 90,
+    "silver/adsblol_tracked_flights/": 90,
+    "silver/adsblol_track_points/": 90,
 }
 
 _MONTH = re.compile(r"/year=(\d{4})/month=(\d{1,2})/[^/]+$")

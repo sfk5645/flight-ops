@@ -1,0 +1,74 @@
+name: backfill
+
+# Started by hand from the Actions tab. Turns past days of adsb.lol history into
+# silver/adsblol_tracked_flights and silver/adsblol_track_points (in-flight model training
+# examples; see src/flightops/flows/backfill_tracks.py). Each day's ~4 GB archive is streamed
+# on GitHub's machine, never stored. The range is cut into chunks of a few days that run side
+# by side. Safe to re-run: each day's files are rebuilt and replaced.
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "First UTC day (YYYY-MM-DD)"
+        required: true
+      end:
+        description: "Last UTC day (YYYY-MM-DD); adsb.lol must already have the day after it"
+        required: true
+
+concurrency:
+  group: backfill
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      chunks: ${{ steps.plan.outputs.chunks }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Cut the range into chunks
+        id: plan
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: |
+          chunks=$(uv run --no-dev python -m flightops.flows.backfill_tracks --plan --start "$START" --end "$END")
+          echo "chunks=$chunks" >> "$GITHUB_OUTPUT"
+
+  backfill:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        chunk: ${{ fromJSON(needs.plan.outputs.chunks) }}
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked --no-dev
+
+      - name: Backfill ${{ matrix.chunk.start }} to ${{ matrix.chunk.end }}
+        env:
+          START: ${{ matrix.chunk.start }}
+          END: ${{ matrix.chunk.end }}
+        run: uv run python -m flightops.flows.backfill_tracks --start "$START" --end "$END"

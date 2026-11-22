@@ -101,3 +101,11 @@ Same token and headers as step 2, with:
 It builds the previous UTC day's `silver/tracked_flights` and `silver/track_points` files once
 every flight that took off that day has landed, then runs `prune_lake`. To rebuild a specific day, run the `daily`
 workflow by hand from the Actions tab and enter the date.
+
+## Backfilling in-flight training examples (adsb.lol)
+
+The `backfill` workflow turns past days of adsb.lol history into
+`silver/adsblol_tracked_flights` and `silver/adsblol_track_points` (kept 90 days). Start it by
+hand: Actions tab → **backfill** → **Run workflow**, enter the first and last UTC day. adsb.lol
+must already have published the day after the last one (usually a day later). Each day's ~4 GB
+archive is streamed on GitHub's machine and nothing is stored but the results.
