@@ -4,7 +4,7 @@ import pyarrow as pa
 import pytest
 
 from flightops import retention
-from flightops.retention import expired_day_keys, expired_month_keys, prune
+from flightops.retention import check_size, expired_day_keys, expired_month_keys, prune
 from flightops.storage import LakeStorage
 
 
@@ -57,3 +57,14 @@ def test_prune_deletes_only_expired_months(
     assert lake.exists(keys[0]) is dry_run
     assert lake.exists(keys[1]) and lake.exists(keys[2])
     assert lake.exists("silver/airports/data.parquet")
+
+
+def test_size_check_fails_only_over_the_limit(lake: LakeStorage) -> None:
+    table = pa.table({"x": list(range(1000))})
+    lake.write_parquet("silver/a/date=2026-11-01/data.parquet", table)
+    lake.write_parquet("gold/b/data.parquet", table)
+    size = lake.total_bytes()
+    assert size == 2 * lake.total_bytes("gold/") > 0
+    assert check_size(lake, limit=size) == size
+    with pytest.raises(RuntimeError, match="over the"):
+        check_size(lake, limit=size - 1)

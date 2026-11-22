@@ -100,6 +100,15 @@ class LakeStorage:
             keys.extend(obj["Key"] for obj in page.get("Contents", []) if "Key" in obj)
         return keys
 
+    def total_bytes(self, prefix: str = "") -> int:
+        """Size of every object under `prefix` (the whole bucket by default)."""
+        paginator = self._client.get_paginator("list_objects_v2")
+        return sum(
+            obj.get("Size", 0)
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix)
+            for obj in page.get("Contents", [])
+        )
+
     def delete(self, keys: list[str]) -> None:
         """Delete objects (in batches of 1,000, the S3 limit per request)."""
         for start in range(0, len(keys), 1000):

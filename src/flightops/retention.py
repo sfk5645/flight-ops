@@ -12,6 +12,11 @@ once a day, but not BTS, whose months were all uploaded at once.
 
 Only keys that sit inside a recognized partition folder can be deleted; anything else under a
 prefix is left alone.
+
+Safety net: after pruning, check_size fails if the bucket is over SIZE_LIMIT_BYTES. The rules
+above should keep it near 4.5 GB (Nov 2026 projection); passing 8 GB means something stopped
+being pruned or a dataset grew unexpectedly, and the failed run makes GitHub email the owner
+well before the 10 GB free tier runs out.
 """
 
 from __future__ import annotations
@@ -25,6 +30,9 @@ from flightops.storage import LakeStorage
 log = logging.getLogger(__name__)
 
 BTS_MONTHS = 24
+
+# R2's free tier is 10 GB (decimal); alert with room to spare.
+SIZE_LIMIT_BYTES = 8 * 10**9
 
 MONTHLY_RULES: dict[str, int] = {
     "bronze/bts_ontime/": BTS_MONTHS,
@@ -82,3 +90,15 @@ def _delete(lake: LakeStorage, prefix: str, keys: list[str], dry_run: bool) -> l
         if not dry_run:
             lake.delete(keys)
     return keys
+
+
+def check_size(lake: LakeStorage, limit: int = SIZE_LIMIT_BYTES) -> int:
+    """The bucket's total size in bytes; raises if it is over `limit`."""
+    size = lake.total_bytes()
+    log.info("lake size %.2f GB (limit %.0f GB)", size / 1e9, limit / 1e9)
+    if size > limit:
+        raise RuntimeError(
+            f"the lake is {size / 1e9:.2f} GB, over the {limit / 1e9:.0f} GB safety limit "
+            "(R2's free tier ends at 10 GB): find what grew before it reaches 10"
+        )
+    return size
