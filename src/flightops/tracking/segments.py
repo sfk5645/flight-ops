@@ -22,6 +22,7 @@ the joins). A landing and takeoff inside the gap would leave it short of that di
 Airports, landing-time estimates and go-around merging come later, on top of these legs.
 """
 
+import duckdb
 import pyarrow as pa
 
 from flightops.duck import connect
@@ -267,6 +268,15 @@ order by icao24, first_air_time
 """
 
 
+def clean_positions(con: duckdb.DuckDBPyConnection, positions: pa.Table) -> None:
+    """Create the temp table `smoothed` on `con`: one row per real position (stale repeats
+    dropped, timed by time_position), with `airborne` corrected for one-snapshot blips.
+    Shared by split_legs and tracks.track_points, so both see exactly the same positions."""
+    con.register("positions", positions)
+    con.execute(_OBSERVATIONS)
+    con.execute(_SMOOTHED)
+
+
 def split_legs(positions: pa.Table) -> pa.Table:
     """One row per flight leg found in a set of OpenSky snapshots (bronze schema).
 
@@ -274,9 +284,9 @@ def split_legs(positions: pa.Table) -> pa.Table:
     gives identical output regardless of row order.
     """
     con = connect()
-    con.register("positions", positions)
+    clean_positions(con, positions)
     data_end = con.sql("select to_timestamp(max(snapshot_time)) from positions").fetchall()[0][0]
-    for statement in (_OBSERVATIONS, _SMOOTHED, _MARKED, _CALLSIGNS):
+    for statement in (_MARKED, _CALLSIGNS):
         con.execute(statement)
     con.execute(_LEGS, {"data_end": data_end})
     return con.sql(_STITCHED).to_arrow_table()

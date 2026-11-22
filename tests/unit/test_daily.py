@@ -12,6 +12,7 @@ from flightops.tracking.daily import (
     AIRPORTS_KEY,
     compact_day,
     snapshot_keys,
+    track_points_key,
     tracked_flights_key,
 )
 
@@ -122,3 +123,21 @@ def test_a_day_without_snapshots_is_an_error(lake: LakeStorage) -> None:
     store(lake, flight("a00001", depart=-30, arrive=-28))
     with pytest.raises(FileNotFoundError, match="no snapshots for 2026-11-09"):
         compact_day(lake, DAY)
+
+
+def test_keeps_a_moment_every_fifteen_minutes_of_flights_with_a_known_landing(
+    lake: LakeStorage,
+) -> None:
+    # a00001 flies ATL->LGA 09:00-11:00; f00006 is lost at cruise (no destination, no answer)
+    lost = [position("f00006", at(12 + m / 60), *ATL, airborne=True) for m in range(0, 60, 5)]
+    store(lake, flight("a00001", depart=9, arrive=11), lost)
+    compact_day(lake, DAY)
+    points = lake.read_parquet(track_points_key(DAY)).to_pylist()
+
+    assert {p["icao24"] for p in points} == {"a00001"}
+    times = [p["position_time"] for p in points]
+    # first airborne sighting at 09:00, then the first position in each 15-minute stretch
+    assert times == [MIDNIGHT + timedelta(hours=9, minutes=m) for m in range(0, 121, 15)]
+    assert all(p["first_air_time"] == MIDNIGHT + timedelta(hours=9) for p in points)
+    assert points[0]["latitude"] == pytest.approx(ATL[0], abs=1e-4)
+    assert points[0]["altitude_m"] == 10000.0

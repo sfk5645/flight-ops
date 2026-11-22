@@ -98,6 +98,6 @@ Same token and headers as step 2, with:
 - Schedule: every day at **20:00 UTC** (set the job's time zone to UTC)
 - Request body: `{"ref":"main"}`
 
-It builds the previous UTC day's `silver/tracked_flights` file once every flight that took off
-that day has landed, then runs `prune_lake`. To rebuild a specific day, run the `daily`
+It builds the previous UTC day's `silver/tracked_flights` and `silver/track_points` files once
+every flight that took off that day has landed, then runs `prune_lake`. To rebuild a specific day, run the `daily`
 workflow by hand from the Actions tab and enter the date.

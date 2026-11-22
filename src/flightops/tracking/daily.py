@@ -1,5 +1,8 @@
 """One day of tracked flights: snapshots -> legs -> airports -> flight numbers -> silver.
 
+Also stores silver/track_points: thinned positions along those flights, the in-flight model's
+training examples (see flightops.tracking.tracks).
+
 A flight belongs to the UTC day it took off (its first airborne sighting). To build day D:
 - Snapshots from LOOKBACK before D are read too. A plane already flying at midnight then starts
   its leg before D and is left out (it belongs to D-1), and morning departures can find where
@@ -22,6 +25,7 @@ from flightops.storage import LakeStorage, lake_key
 from flightops.tracking.airports import match_airports
 from flightops.tracking.callsigns import add_flight_numbers
 from flightops.tracking.segments import POSITION_COLUMNS, split_legs
+from flightops.tracking.tracks import track_points
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +39,10 @@ SNAPSHOTS_PER_DAY = 288
 
 def tracked_flights_key(day: date) -> str:
     return lake_key("silver", "tracked_flights", date=day.isoformat())
+
+
+def track_points_key(day: date) -> str:
+    return lake_key("silver", "track_points", date=day.isoformat())
 
 
 def _start_of(day: date) -> datetime:
@@ -68,7 +76,7 @@ def build_tracked_flights(
 
 
 def compact_day(lake: LakeStorage, day: date) -> pa.Table:
-    """Build and store `day`'s tracked flights. Returns the stored table."""
+    """Build and store `day`'s tracked flights and track points. Returns the flights."""
     keys = snapshot_keys(lake, day)
     on_day = sum(f"/date={day.isoformat()}/" in k for k in keys)
     if on_day == 0:
@@ -80,14 +88,18 @@ def compact_day(lake: LakeStorage, day: date) -> pa.Table:
     airports, airlines = lake.read_parquet(AIRPORTS_KEY), lake.read_parquet(AIRLINES_KEY)
     flights = build_tracked_flights(positions, airports, airlines, day)
     lake.write_parquet(tracked_flights_key(day), flights, overwrite=True)
+    points = track_points(positions, flights)
+    lake.write_parquet(track_points_key(day), points, overwrite=True)
 
     still_flying = pc.sum(pc.equal(flights.column("end_reason"), "still_flying")).as_py() or 0
     log.info(
-        "%s: %d flights from %d snapshots (%d on the day), %d still flying at the end of the data",
+        "%s: %d flights from %d snapshots (%d on the day), %d still flying at the end of the data,"
+        " %d track points",
         day,
         flights.num_rows,
         len(keys),
         on_day,
         still_flying,
+        points.num_rows,
     )
     return flights
