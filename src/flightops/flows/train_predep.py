@@ -109,13 +109,15 @@ def main() -> None:
     features = [c for group in FEATURE_GROUPS.values() for c in group]
     model = predep.train(split.train, split.valid, features)
     log.info(
-        "model trained in %.0f s, trees: %s",
+        "model trained in %.0f s, trees: %s, range shifts (min): %s",
         time.monotonic() - started,
         {k: b.best_iteration for k, b in model.boosters.items()},
+        {k: round(v, 1) for k, v in model.shifts.items()},
     )
     predictions = {
         "always 0 min": baselines.zero(split.train, split.test),
         "route + hour history": baselines.route_hour(split.train, split.test),
+        "LightGBM, raw range": model.predict(split.test, calibrated=False),
         "LightGBM": model.predict(split.test),
     }
     print("## Test months\n")

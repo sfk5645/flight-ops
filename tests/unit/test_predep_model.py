@@ -67,6 +67,33 @@ def test_quantile_model_learns_the_spread_and_keeps_order() -> None:
     assert 0.7 < inside < 0.9
 
 
+def test_calibration_widens_a_range_that_is_too_sure() -> None:
+    # trained on calm months, then the world gets noisier and more delayed (like a summer):
+    # the raw range misses too often; calibrating on the noisy validation months fixes it
+    rng = np.random.default_rng(7)
+
+    def months(n: int, noise: float, extra: float) -> pd.DataFrame:
+        frame = pd.DataFrame({"x": rng.uniform(0, 1, n)})
+        frame[LABEL] = 30 * frame["x"] + extra + rng.normal(0, noise, n)
+        return frame
+
+    calm, noisy_valid, noisy_test = months(3000, 5, 0), months(4000, 15, 10), months(4000, 15, 10)
+    model = predep.train(calm, calm, ["x"])
+    model.shifts = predep.calibrate(model, noisy_valid)
+    assert model.shifts["p90"] > model.shifts["p10"] and "p50" not in model.shifts
+
+    def inside(p: pd.DataFrame) -> float:
+        y = noisy_test[LABEL]
+        return float(((y >= p["p10"]) & (y <= p["p90"])).mean())
+
+    assert inside(model.predict(noisy_test, calibrated=False)) < 0.6
+    assert 0.77 < inside(model.predict(noisy_test)) < 0.83
+    # the P50 is not moved by calibration
+    assert np.allclose(
+        model.predict(noisy_test)["p50"], model.predict(noisy_test, calibrated=False)["p50"]
+    )
+
+
 def test_breakdown_shares_add_up_and_concentration_is_sorted() -> None:
     from flightops.models.delay import breakdown
 

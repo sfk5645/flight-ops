@@ -13,6 +13,7 @@ flightops:
       settings:
         TimeZone: UTC
         # a runaway query spilled 52 GB to the laptop's disk once; fail early instead
+        # (10 GB is too little for training_set today, even with fewer threads)
         max_temp_directory_size: 20GB
       secrets:
         - type: r2
