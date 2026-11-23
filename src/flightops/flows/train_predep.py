@@ -1,9 +1,11 @@
 """Train the pre-departure delay model and compare it with the baselines on the newest months.
 
     uv run --env-file .env python -m flightops.flows.train_predep [--sample 0.2] [--groups]
-        [--breakdown] [--training-set PATH]
+        [--breakdown] [--training-set PATH] [--register]
 
-Reads gold/training_set from R2 into memory; writes nothing (the model registry comes later).
+Reads gold/training_set from R2 into memory. With --register, the model is saved as a new
+version of `predep-delay` in the MLflow registry (DagsHub), with its test scores; otherwise
+nothing is written.
 Prints Markdown tables: baselines vs model on the test months, the most used inputs, and with
 --groups, how much each group of inputs adds (P50 only, on a sample, to keep it quick).
 """
@@ -16,8 +18,10 @@ import pandas as pd
 import pyarrow as pa
 
 from flightops.flows.validate_landings import markdown
+from flightops.models import registry
 from flightops.models.delay import baselines, breakdown, predep
 from flightops.models.delay.features import (
+    CATEGORICAL,
     FEATURE_GROUPS,
     LABEL,
     Split,
@@ -93,6 +97,9 @@ def main() -> None:
     parser.add_argument(
         "--breakdown", action="store_true", help="also split the test error into slices"
     )
+    parser.add_argument(
+        "--register", action="store_true", help="save the model to the MLflow registry"
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -134,6 +141,27 @@ def main() -> None:
         )
     )
 
+    if args.register:
+        actual = split.test[LABEL].to_numpy(dtype=float)
+        metrics: dict[str, float] = {}
+        for name, p in predictions.items():
+            prefix = {"LightGBM": "test", "LightGBM, raw range": "test_raw"}.get(
+                name, "baseline_" + "_".join(name.replace("+", " ").split())
+            )
+            metrics |= registry.score_metrics(
+                prefix,
+                score(actual, p["p10"].to_numpy(), p["p50"].to_numpy(), p["p90"].to_numpy()),
+            )
+        version = registry.register(
+            model,
+            name=registry.PREDEP,
+            categorical=CATEGORICAL,
+            sample_rows=split.train,
+            metrics=metrics,
+            params=split_params(split, "flight_date") | {"sample": args.sample or 1.0},
+        )
+        log.info("registered %s version %s", registry.PREDEP, version)
+
     if args.breakdown:
         actual = split.test[LABEL].to_numpy(dtype=float)
         p50 = predictions["LightGBM"]["p50"].to_numpy()
@@ -150,6 +178,21 @@ def main() -> None:
         print("\n## What each group adds (P50 only)\n")
         print(markdown_frame(group_gains(split)))
     log.info("done in %.0f s", time.monotonic() - started)
+
+
+def split_params(split: object, date_column: str) -> dict[str, object]:
+    """Where the model's data came from: each part's rows and first and last day (`split`
+    is either model's Split: anything with train, valid and test tables)."""
+    params: dict[str, object] = {}
+    for name in ("train", "valid", "test"):
+        part = getattr(split, name)
+        dates = pd.to_datetime(part[date_column])
+        params |= {
+            f"{name}_rows": len(part),
+            f"{name}_from": str(dates.min().date()),
+            f"{name}_to": str(dates.max().date()),
+        }
+    return params
 
 
 def markdown_frame(frame: pd.DataFrame) -> str:
