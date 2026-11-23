@@ -94,6 +94,18 @@ def test_calibration_widens_a_range_that_is_too_sure() -> None:
     )
 
 
+def test_monotone_inputs_never_move_the_prediction_the_wrong_way() -> None:
+    # the label rises with x on average but dips in one corner; forced monotone, the model
+    # never predicts lower for a higher x
+    rng = np.random.default_rng(7)
+    frame = pd.DataFrame({"x": rng.uniform(0, 10, 6000), "z": rng.uniform(0, 1, 6000)})
+    frame[LABEL] = 3 * frame["x"] - 25 * ((frame["x"] > 4) & (frame["x"] < 5)) + frame["z"]
+    model = predep.train(frame[:5000], frame[5000:], ["x", "z"], monotone={"x": 1})
+    grid = pd.DataFrame({"x": np.linspace(0, 10, 200), "z": 0.5})
+    p50 = model.predict(grid, calibrated=False)["p50"].to_numpy()
+    assert (np.diff(p50) >= -1e-9).all()
+
+
 def test_breakdown_shares_add_up_and_concentration_is_sorted() -> None:
     from flightops.models.delay import breakdown
 

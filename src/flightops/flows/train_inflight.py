@@ -159,6 +159,9 @@ def main() -> None:
         label=LABEL,
         categorical=inflight.CATEGORICAL,
         calibration_bands=inflight.CALIBRATION_BANDS,
+        monotone=inflight.MONOTONE,
+        huber_delta=inflight.HUBER_DELTA,
+        max_rounds=inflight.MAX_ROUNDS,
     )
     log.info(
         "model trained in %.0f s, trees: %s, range shifts (min): %s",

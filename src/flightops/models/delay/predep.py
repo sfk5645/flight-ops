@@ -66,8 +66,14 @@ class QuantileModel:
             band = self.band_of(predicted["p50"].to_numpy())
             for name, shifts in self.shifts.items():
                 predicted[name] += np.asarray(shifts)[band]
-        # Three separate models can cross (P10 above P50); sorting each row fixes the order.
-        predicted[list(self.boosters)] = np.sort(predicted[list(self.boosters)].to_numpy(), axis=1)
+        # Three separate models can cross (P10 above P50). The ends are pulled to the P50 rather
+        # than sorting the three: sorting could swap an end into the middle and break the P50's
+        # monotone guarantee (see train).
+        if "p50" in predicted:
+            if "p10" in predicted:
+                predicted["p10"] = np.minimum(predicted["p10"], predicted["p50"])
+            if "p90" in predicted:
+                predicted["p90"] = np.maximum(predicted["p90"], predicted["p50"])
         return predicted
 
     def band_of(self, raw_p50: np.ndarray) -> np.ndarray:
@@ -82,18 +88,43 @@ def train(
     label: str = LABEL,
     categorical: list[str] = CATEGORICAL,
     calibration_bands: list[float] | None = None,
+    monotone: dict[str, int] | None = None,
+    huber_delta: float = 10.0,
+    max_rounds: int = MAX_ROUNDS,
 ) -> QuantileModel:
+    """`monotone` forces a direction on inputs of the P50, e.g. {"dest_thunderstorm": 1}:
+    raising it can never lower the P50 (-1: never raise it). The promotion gates' behaviour
+    tests demand this: without it, ~8% of flights got an *earlier* prediction from a
+    destination storm or a later inbound plane, and 3% of in-flight moments an earlier landing
+    from being further away.
+
+    LightGBM refuses monotone constraints for objectives that re-fit leaves to a quantile
+    (quantile, L1), so a constrained P50 uses the Huber loss instead: squared error for misses
+    under `huber_delta` minutes, absolute error beyond, so it stays close to a median and long
+    delays can't drag it. Measured Nov 2026 on 1M-row samples: pre-departure 25.57 -> 25.63
+    min, in-flight 6.51 -> 6.78 (delta 10 and 5). P10/P90 stay quantile models without
+    constraints; calibration only moves them, never the P50, so the guarantee holds for the P50.
+    """
     categorical = [c for c in features if c in categorical]
     boosters = {}
     for name, alpha in quantiles.items():
+        params: dict[str, object] = {**PARAMS, "alpha": alpha}
+        if monotone and name == "p50":
+            params |= {
+                "objective": "huber",
+                "alpha": huber_delta,
+                "metric": "l1",
+                "monotone_constraints": [monotone.get(c, 0) for c in features],
+                "monotone_constraints_method": "advanced",
+            }
         train_set = lgb.Dataset(
             train_rows[features], train_rows[label], categorical_feature=categorical
         )
         valid_set = lgb.Dataset(valid_rows[features], valid_rows[label], reference=train_set)
         boosters[name] = lgb.train(
-            {**PARAMS, "alpha": alpha},
+            params,
             train_set,
-            num_boost_round=MAX_ROUNDS,
+            num_boost_round=max_rounds,
             valid_sets=[valid_set],
             callbacks=[lgb.early_stopping(PATIENCE, verbose=False)],
         )

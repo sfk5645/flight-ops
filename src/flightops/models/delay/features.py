@@ -46,6 +46,11 @@ FEATURE_GROUPS: dict[str, list[str]] = {
 FEATURES = [column for group in FEATURE_GROUPS.values() for column in group]
 CATEGORICAL = ["carrier", "origin", "dest", "inbound_status"]
 
+# Directions the model must respect (promotion gate behaviour tests): a thunderstorm at either
+# airport never makes a flight predicted earlier; neither does a smaller turnaround buffer
+# (a later inbound aircraft).
+MONOTONE = {"origin_thunderstorm": 1, "dest_thunderstorm": 1, "inbound_buffer_min": -1}
+
 # Delay history needs 3 published months (bts_lag_months = 3), so rows before 2025 have little
 # or none of it; training starts once it is complete.
 FIRST_MONTH = "2025-01"

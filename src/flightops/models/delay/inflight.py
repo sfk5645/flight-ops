@@ -44,6 +44,15 @@ NOT_USED = {
 }  # fmt: skip
 FEATURES = [column for group in FEATURE_GROUPS.values() for column in group]
 CATEGORICAL = ["carrier", "origin", "dest"]
+
+# Directions the model must respect (promotion gate behaviour tests): further from the
+# destination never means landing sooner (distance / speed grows with distance too).
+MONOTONE = {"dest_distance_km": 1, "direct_estimate_min": 1}
+# The constrained P50 (Huber loss, see predep.train) learns in small steps: misses here are a
+# few minutes, so a small delta, and more trees than the pre-departure model needs (a 1M-row
+# test run still improved at 3,000).
+HUBER_DELTA = 5.0
+MAX_ROUNDS = 4000
 # kept for slicing the scores, never inputs
 EXTRA = ["feed", "date", "dest_guess_right"]
 
