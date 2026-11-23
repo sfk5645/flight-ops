@@ -1,5 +1,8 @@
 """Pre-departure delay model: three LightGBM models, one per quantile (P10, P50, P90).
 
+The in-flight model (minutes to landing) is trained the same way with its own label and
+inputs, so `train` and `calibrate` take those as arguments (see models/delay/inflight.py).
+
 Quantile regression ("pinball" loss) learns a value that the true delay falls below 10%, 50%
 or 90% of the time, so P10..P90 is an 80% range. Training stops when the validation months stop
 improving (early stopping), so the number of trees is chosen on data the model didn't train on.
@@ -66,14 +69,16 @@ def train(
     valid_rows: pd.DataFrame,
     features: list[str],
     quantiles: dict[str, float] = QUANTILES,
+    label: str = LABEL,
+    categorical: list[str] = CATEGORICAL,
 ) -> QuantileModel:
-    categorical = [c for c in features if c in CATEGORICAL]
+    categorical = [c for c in features if c in categorical]
     boosters = {}
     for name, alpha in quantiles.items():
         train_set = lgb.Dataset(
-            train_rows[features], train_rows[LABEL], categorical_feature=categorical
+            train_rows[features], train_rows[label], categorical_feature=categorical
         )
-        valid_set = lgb.Dataset(valid_rows[features], valid_rows[LABEL], reference=train_set)
+        valid_set = lgb.Dataset(valid_rows[features], valid_rows[label], reference=train_set)
         boosters[name] = lgb.train(
             {**PARAMS, "alpha": alpha},
             train_set,
@@ -82,12 +87,15 @@ def train(
             callbacks=[lgb.early_stopping(PATIENCE, verbose=False)],
         )
     model = QuantileModel(features, boosters)
-    model.shifts = calibrate(model, valid_rows, quantiles)
+    model.shifts = calibrate(model, valid_rows, quantiles, label)
     return model
 
 
 def calibrate(
-    model: QuantileModel, valid_rows: pd.DataFrame, quantiles: dict[str, float] = QUANTILES
+    model: QuantileModel,
+    valid_rows: pd.DataFrame,
+    quantiles: dict[str, float] = QUANTILES,
+    label: str = LABEL,
 ) -> dict[str, float]:
     """Minutes to add to each end of the range so it holds its share on the validation months.
 
@@ -98,7 +106,7 @@ def calibrate(
     stays an honest check.
     """
     raw = model.predict(valid_rows, calibrated=False)
-    actual = valid_rows[LABEL].to_numpy(dtype=float)
+    actual = valid_rows[label].to_numpy(dtype=float)
     return {
         name: float(np.quantile(actual - raw[name].to_numpy(), alpha))
         for name, alpha in quantiles.items()

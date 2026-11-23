@@ -10,6 +10,7 @@ def score(actual: Array, p10: Array, p50: Array, p90: Array) -> dict[str, float]
     """
     mae            average minutes between the P50 and what happened (lower is better)
     within_15      share of flights where the P50 was within 15 minutes
+    within_5       the same within 5 minutes (the in-flight model's measure)
     coverage       share that landed inside P10..P90 (target 80%: wider is not "better")
     width          median width of the range in minutes (narrower is better, at 80% coverage)
     pinball        quantile loss averaged over P10/P50/P90: one number that rewards both
@@ -20,6 +21,7 @@ def score(actual: Array, p10: Array, p50: Array, p90: Array) -> dict[str, float]
     return {
         "mae": float(np.mean(np.abs(error))),
         "within_15": float(np.mean(np.abs(error) <= 15)),
+        "within_5": float(np.mean(np.abs(error) <= 5)),
         "coverage": float(np.mean((actual >= p10) & (actual <= p90))),
         "width": float(np.median(p90 - p10)),
         "pinball": float(pinball),
