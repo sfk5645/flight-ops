@@ -174,3 +174,27 @@ models:
               arguments:
                 values: [0, 1, 2, 3]
                 quote: false
+
+  - name: inflight_training_set
+    description: >
+      In-flight model training rows: one per track point (every 15 minutes along a flight) of
+      flights with a known landing whose expected destination is a BTS airport, from both
+      feeds (feed = opensky | adsblol). Label minutes_to_landing. The destination is the
+      callsign's usual one from the same origin over the previous 7 days, never where the
+      flight actually landed (dest_guess_right is for analysis only). Partitioned by date, the
+      UTC day the flight took off. Rebuilt from silver, which keeps 90 days.
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "feed || '|' || icao24 || '|' || position_time"
+    columns:
+      - name: minutes_to_landing
+        data_tests: [not_null]
+      - name: dest
+        data_tests: [not_null]
+      - name: origin
+        data_tests: [not_null]
+      - name: dest_distance_km
+        data_tests: [not_null]
+      - name: minutes_flown
+        data_tests: [not_null]

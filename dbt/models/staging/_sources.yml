@@ -18,3 +18,16 @@ sources:
         description: >
           One row per airport weather report (METAR, Iowa Environmental Mesonet archive), with the
           flags the models use. Partitioned by year and month.
+      - name: tracked_flights
+        description: >
+          One row per flight leg seen by our own tracking (OpenSky), with origin, destination,
+          takeoff and landing times (src/flightops/tracking). Partitioned by date (UTC day of the
+          first airborne sighting); kept 90 days.
+      - name: track_points
+        description: >
+          The first airborne position in each 15-minute stretch of every tracked flight with a
+          known landing. Join to tracked_flights on icao24 + first_air_time. Kept 90 days.
+      - name: adsblol_tracked_flights
+        description: Same as tracked_flights, built from adsb.lol history (backfill).
+      - name: adsblol_track_points
+        description: Same as track_points, built from adsb.lol history (backfill).

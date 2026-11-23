@@ -39,6 +39,8 @@ MONTHLY_RULES: dict[str, int] = {
     "silver/bts_flights/": BTS_MONTHS,
     "quarantine/bts_flights/": BTS_MONTHS,
     "gold/fct_rotations/": BTS_MONTHS,
+    # dbt rewrites the partitions it builds but leaves ones that dropped out of its inputs
+    "gold/training_set/": BTS_MONTHS,
     "bronze/iem_metar/": BTS_MONTHS,
     "silver/airport_weather/": BTS_MONTHS,
     "quarantine/airport_weather/": BTS_MONTHS,
@@ -50,6 +52,7 @@ DAILY_RULES: dict[str, int] = {
     "silver/track_points/": 90,
     "silver/adsblol_tracked_flights/": 90,
     "silver/adsblol_track_points/": 90,
+    "gold/inflight_training_set/": 90,
 }
 
 _MONTH = re.compile(r"/year=(\d{4})/month=(\d{1,2})/[^/]+$")
