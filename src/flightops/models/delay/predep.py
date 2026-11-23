@@ -40,6 +40,7 @@ PARAMS = {
     "force_row_wise": True,
 }
 MAX_ROUNDS = 1000
+MIN_BAND_ROWS = 1000
 PATIENCE = 50
 
 
@@ -47,21 +48,30 @@ PATIENCE = 50
 class QuantileModel:
     features: list[str]
     boosters: dict[str, lgb.Booster]
-    # minutes added to each quantile's prediction (from `calibrate`; empty = raw model)
-    shifts: dict[str, float] = field(default_factory=dict)
+    # minutes added to each quantile's prediction, one value per band of the raw P50 (from
+    # `calibrate`; empty = raw model). band_edges are the inner band edges in minutes: none
+    # means a single band (the same shift for every row).
+    shifts: dict[str, list[float]] = field(default_factory=dict)
+    band_edges: list[float] = field(default_factory=list)
 
     def predict(self, rows: pd.DataFrame, calibrated: bool = True) -> pd.DataFrame:
-        shifts = self.shifts if calibrated else {}
         predicted = pd.DataFrame(
             {
-                name: np.asarray(booster.predict(rows[self.features])) + shifts.get(name, 0.0)
+                name: np.asarray(booster.predict(rows[self.features]))
                 for name, booster in self.boosters.items()
             },
             index=rows.index,
         )
+        if calibrated and self.shifts:
+            band = self.band_of(predicted["p50"].to_numpy())
+            for name, shifts in self.shifts.items():
+                predicted[name] += np.asarray(shifts)[band]
         # Three separate models can cross (P10 above P50); sorting each row fixes the order.
         predicted[list(self.boosters)] = np.sort(predicted[list(self.boosters)].to_numpy(), axis=1)
         return predicted
+
+    def band_of(self, raw_p50: np.ndarray) -> np.ndarray:
+        return np.searchsorted(np.asarray(self.band_edges, dtype=float), raw_p50, side="right")
 
 
 def train(
@@ -71,6 +81,7 @@ def train(
     quantiles: dict[str, float] = QUANTILES,
     label: str = LABEL,
     categorical: list[str] = CATEGORICAL,
+    calibration_bands: list[float] | None = None,
 ) -> QuantileModel:
     categorical = [c for c in features if c in categorical]
     boosters = {}
@@ -86,7 +97,7 @@ def train(
             valid_sets=[valid_set],
             callbacks=[lgb.early_stopping(PATIENCE, verbose=False)],
         )
-    model = QuantileModel(features, boosters)
+    model = QuantileModel(features, boosters, band_edges=list(calibration_bands or []))
     model.shifts = calibrate(model, valid_rows, quantiles, label)
     return model
 
@@ -96,19 +107,34 @@ def calibrate(
     valid_rows: pd.DataFrame,
     quantiles: dict[str, float] = QUANTILES,
     label: str = LABEL,
-) -> dict[str, float]:
-    """Minutes to add to each end of the range so it holds its share on the validation months.
+) -> dict[str, list[float]]:
+    """Minutes to add to each end of the range so it holds its share on the validation data.
 
-    For P10: of all validation flights, how far below or above the raw P10 did they land? The
+    For P10: of all validation rows, how far below or above the raw P10 did they land? The
     10th percentile of those misses is the shift that puts exactly 10% below the new P10.
     Likewise the 90th percentile for P90. The P50 is left alone: it is judged on its error,
-    not on coverage. Measured on validation months, never the test months, so the test score
+    not on coverage. Measured on validation data, never the test data, so the test score
     stays an honest check.
+
+    With model.band_edges, rows are grouped by the model's own raw P50 (what is known live,
+    unlike the true answer) and each band gets its own shift: the in-flight model's misses are
+    much smaller 10 minutes out than 3 hours out, so one shift would make the range too wide
+    near landing and too narrow far away. A band with fewer than MIN_BAND_ROWS validation rows
+    uses the overall shift.
     """
     raw = model.predict(valid_rows, calibrated=False)
     actual = valid_rows[label].to_numpy(dtype=float)
-    return {
-        name: float(np.quantile(actual - raw[name].to_numpy(), alpha))
-        for name, alpha in quantiles.items()
-        if name != "p50"
-    }
+    band = model.band_of(raw["p50"].to_numpy()) if "p50" in raw else np.zeros(len(raw), int)
+    shifts: dict[str, list[float]] = {}
+    for name, alpha in quantiles.items():
+        if name == "p50":
+            continue
+        miss = actual - raw[name].to_numpy()
+        overall = float(np.quantile(miss, alpha))
+        shifts[name] = [
+            float(np.quantile(miss[band == b], alpha))
+            if (band == b).sum() >= MIN_BAND_ROWS
+            else overall
+            for b in range(len(model.band_edges) + 1)
+        ]
+    return shifts

@@ -78,12 +78,13 @@ def main() -> None:
         inflight.FEATURES,
         label=LABEL,
         categorical=inflight.CATEGORICAL,
+        calibration_bands=inflight.CALIBRATION_BANDS,
     )
     log.info(
         "model trained in %.0f s, trees: %s, range shifts (min): %s",
         time.monotonic() - started,
         {k: b.best_iteration for k, b in model.boosters.items()},
-        {k: round(v, 1) for k, v in model.shifts.items()},
+        {k: [round(x, 1) for x in v] for k, v in model.shifts.items()},
     )
     test = split.test.reset_index(drop=True)
     predictions = {

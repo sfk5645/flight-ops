@@ -56,3 +56,34 @@ def test_quantile_model_trains_on_another_label() -> None:
     model = predep.train(split.train, split.valid, ["x"], label=LABEL, categorical=[])
     error = (split.test[LABEL] - model.predict(split.test)["p50"]).abs().mean()
     assert error < 5
+
+
+def test_banded_calibration_fits_each_band_separately() -> None:
+    # misses grow with the time left (like real flights): short ones need a narrow range,
+    # long ones a wide one; one shared shift would get both wrong
+    rng = np.random.default_rng(7)
+
+    def days(n: int) -> pd.DataFrame:
+        x = rng.uniform(5, 200, n)
+        return pd.DataFrame({"x": x, LABEL: x + rng.normal(0, 1 + x / 10, n)})
+
+    calm = pd.DataFrame({"x": rng.uniform(5, 200, 6000)})
+    calm[LABEL] = calm["x"]  # trained without noise: the raw range is far too narrow
+    valid, test = days(20000), days(20000)
+
+    def coverage_by_band(model: predep.QuantileModel) -> list[float]:
+        p = model.predict(test)
+        inside = (test[LABEL] >= p["p10"]) & (test[LABEL] <= p["p90"])
+        return [float(inside[test["x"] < 30].mean()), float(inside[test["x"] > 120].mean())]
+
+    shared = predep.train(calm, calm, ["x"], label=LABEL, categorical=[])
+    shared.shifts = predep.calibrate(shared, valid, label=LABEL)
+    near, far = coverage_by_band(shared)
+    assert near > 0.95 and far < 0.7
+
+    banded = predep.train(
+        calm, calm, ["x"], label=LABEL, categorical=[], calibration_bands=[30.0, 60.0, 120.0]
+    )
+    banded.shifts = predep.calibrate(banded, valid, label=LABEL)
+    assert len(banded.shifts["p10"]) == 4
+    assert all(0.75 < c < 0.85 for c in coverage_by_band(banded))

@@ -112,7 +112,7 @@ def main() -> None:
         "model trained in %.0f s, trees: %s, range shifts (min): %s",
         time.monotonic() - started,
         {k: b.best_iteration for k, b in model.boosters.items()},
-        {k: round(v, 1) for k, v in model.shifts.items()},
+        {k: [round(x, 1) for x in v] for k, v in model.shifts.items()},
     )
     predictions = {
         "always 0 min": baselines.zero(split.train, split.test),

@@ -80,7 +80,7 @@ def test_calibration_widens_a_range_that_is_too_sure() -> None:
     calm, noisy_valid, noisy_test = months(3000, 5, 0), months(4000, 15, 10), months(4000, 15, 10)
     model = predep.train(calm, calm, ["x"])
     model.shifts = predep.calibrate(model, noisy_valid)
-    assert model.shifts["p90"] > model.shifts["p10"] and "p50" not in model.shifts
+    assert model.shifts["p90"][0] > model.shifts["p10"][0] and "p50" not in model.shifts
 
     def inside(p: pd.DataFrame) -> float:
         y = noisy_test[LABEL]

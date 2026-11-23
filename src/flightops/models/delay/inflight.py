@@ -38,6 +38,10 @@ EXTRA = ["feed", "date", "dest_guess_right"]
 TEST_DAYS = 6  # newest days: the final score
 VALID_DAYS = 5  # the days before: early stopping and range calibration
 
+# The range is calibrated separately in these bands of the model's own P50 (minutes): misses are
+# much smaller near landing (see predep.calibrate).
+CALIBRATION_BANDS = [15.0, 30.0, 60.0, 120.0, 240.0]
+
 # Minutes-to-landing bands for reporting: the last half hour is where < 5 minutes is expected.
 BANDS = [0, 15, 30, 60, 120, 240, np.inf]
 
