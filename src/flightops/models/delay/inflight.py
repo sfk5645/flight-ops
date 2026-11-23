@@ -45,14 +45,14 @@ NOT_USED = {
 FEATURES = [column for group in FEATURE_GROUPS.values() for column in group]
 CATEGORICAL = ["carrier", "origin", "dest"]
 
-# Directions the model must respect (promotion gate behaviour tests): further from the
-# destination never means landing sooner (distance / speed grows with distance too).
-MONOTONE = {"dest_distance_km": 1, "direct_estimate_min": 1}
-# The constrained P50 (Huber loss, see predep.train) learns in small steps: misses here are a
-# few minutes, so a small delta, and more trees than the pre-departure model needs (a 1M-row
-# test run still improved at 3,000).
-HUBER_DELTA = 5.0
-MAX_ROUNDS = 4000
+# No direction is forced on the in-flight P50. "Further from the destination never lands
+# sooner" was tried (Nov 23 2026: monotone distance + Huber P50) and made the last 15 minutes
+# much worse (P50 error 2.82 -> 4.12 min): to line up with the runway, planes often fly away
+# from the airport (the downwind leg) shortly before landing, so the rule is wrong near the
+# airport. Overall 6.31 -> 6.58. Directions return with destination weather (a storm there
+# must never make a landing sooner).
+MONOTONE: dict[str, int] = {}
+MAX_ROUNDS = 1000
 # kept for slicing the scores, never inputs
 EXTRA = ["feed", "date", "dest_guess_right"]
 

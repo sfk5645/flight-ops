@@ -50,6 +50,8 @@ CATEGORICAL = ["carrier", "origin", "dest", "inbound_status"]
 # airport never makes a flight predicted earlier; neither does a smaller turnaround buffer
 # (a later inbound aircraft).
 MONOTONE = {"origin_thunderstorm": 1, "dest_thunderstorm": 1, "inbound_buffer_min": -1}
+# The constrained P50 (Huber loss, see predep.train) stopped at the 1,000-tree limit (Nov 23).
+MAX_ROUNDS = 2500
 
 # Delay history needs 3 published months (bts_lag_months = 3), so rows before 2025 have little
 # or none of it; training starts once it is complete.

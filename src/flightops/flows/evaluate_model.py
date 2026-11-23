@@ -55,13 +55,6 @@ def _later_inbound(rows: pd.DataFrame) -> pd.DataFrame:
     return rows
 
 
-def _further(rows: pd.DataFrame) -> pd.DataFrame:
-    # distance / speed is computed from the distance, so it moves with it
-    rows["dest_distance_km"] = rows["dest_distance_km"] + 50
-    rows["direct_estimate_min"] = rows["dest_distance_km"] / (rows["speed_ms"] * 0.06)
-    return rows
-
-
 def _load_predep(first: str, last: str) -> pd.DataFrame:
     rows = predep_features.load_training_set(first_month=first[:7])
     dates = pd.to_datetime(rows["flight_date"])
@@ -105,13 +98,8 @@ SPECS = {
         label=inflight.LABEL,
         date_column="date",
         segments=["dest", "carrier"],
-        behaviours=[
-            gates.Behaviour(
-                "50 km further from the destination never lands sooner",
-                lambda r: r["speed_ms"] > 0,
-                _further,
-            ),
-        ],
+        # no forced directions yet (see inflight.MONOTONE); destination weather will add one
+        behaviours=[],
         load=_load_inflight,
     ),
 }

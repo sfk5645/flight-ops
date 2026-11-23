@@ -24,6 +24,7 @@ from flightops.models.delay.features import (
     CATEGORICAL,
     FEATURE_GROUPS,
     LABEL,
+    MAX_ROUNDS,
     MONOTONE,
     Split,
     load_training_set,
@@ -115,7 +116,9 @@ def main() -> None:
         )
 
     features = [c for group in FEATURE_GROUPS.values() for c in group]
-    model = predep.train(split.train, split.valid, features, monotone=MONOTONE)
+    model = predep.train(
+        split.train, split.valid, features, monotone=MONOTONE, max_rounds=MAX_ROUNDS
+    )
     log.info(
         "model trained in %.0f s, trees: %s, range shifts (min): %s",
         time.monotonic() - started,

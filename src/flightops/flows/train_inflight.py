@@ -160,7 +160,6 @@ def main() -> None:
         categorical=inflight.CATEGORICAL,
         calibration_bands=inflight.CALIBRATION_BANDS,
         monotone=inflight.MONOTONE,
-        huber_delta=inflight.HUBER_DELTA,
         max_rounds=inflight.MAX_ROUNDS,
     )
     log.info(
