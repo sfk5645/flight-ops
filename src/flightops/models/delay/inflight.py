@@ -30,6 +30,18 @@ FEATURE_GROUPS: dict[str, list[str]] = {
         "route_remaining_min", "expected_dest_flights",
     ],
 }  # fmt: skip
+
+# Destination traffic (landings in the last hour vs normal, planes airborne towards it) is in
+# the training set but not an input: measured Nov 22 2026 (P50 on 1M training rows, test days)
+# it didn't help overall (6.55 -> 6.60 min) or where it should matter most, at airports landing
+# under half their normal rate (6.53 -> 6.55) or the busiest 5% (3.09 -> 3.10). Kept in the
+# table for the anomaly phase's airport-disruption rule.
+NOT_USED = {
+    "traffic": [
+        "dest_landings_1h", "dest_landings_1h_normal", "dest_landings_1h_ratio",
+        "dest_inbound_airborne",
+    ],
+}  # fmt: skip
 FEATURES = [column for group in FEATURE_GROUPS.values() for column in group]
 CATEGORICAL = ["carrier", "origin", "dest"]
 # kept for slicing the scores, never inputs

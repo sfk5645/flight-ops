@@ -1,11 +1,11 @@
 """Train the in-flight model (minutes to landing) and compare it with the baselines.
 
-    uv run --env-file .env python -m flightops.flows.train_inflight [--sample 0.2]
+    uv run --env-file .env python -m flightops.flows.train_inflight [--sample 0.2] [--groups]
 
 Reads gold/inflight_training_set from R2 into memory; writes nothing (the model registry comes
 later). Prints Markdown tables: baselines vs model on the newest days, the same by minutes
 remaining (the last half hour is where < 5 minutes is expected) and by feed, and the most used
-inputs.
+inputs. With --groups, also how much each group of inputs adds (P50 only, on a sample).
 """
 
 import argparse
@@ -20,6 +20,8 @@ from flightops.models.delay.inflight import LABEL, Split
 from flightops.models.delay.metrics import score
 
 log = logging.getLogger(__name__)
+
+GROUPS_SAMPLE_ROWS = 1_000_000
 
 
 def score_row(name: str, rows: pd.DataFrame, p: pd.DataFrame) -> dict[str, object]:
@@ -52,9 +54,42 @@ def sliced(test: pd.DataFrame, predictions: dict[str, pd.DataFrame], by: pd.Seri
     return pd.DataFrame(rows)
 
 
+def group_gains(split: Split) -> pd.DataFrame:
+    """Add one group at a time (P50 model only) and score each on the test days, overall and in
+    the last hour before landing."""
+    train = split.train.sample(min(GROUPS_SAMPLE_ROWS, len(split.train)), random_state=7)
+    actual = split.test[LABEL].to_numpy(dtype=float)
+    last_hour = actual < 60
+    rows: list[dict[str, object]] = []
+    names = list(inflight.FEATURE_GROUPS)
+    for i in range(len(names)):
+        features = [c for g in names[: i + 1] for c in inflight.FEATURE_GROUPS[g]]
+        model = predep.train(
+            train,
+            split.valid,
+            features,
+            quantiles={"p50": 0.5},
+            label=LABEL,
+            categorical=inflight.CATEGORICAL,
+        )
+        error = abs(actual - model.predict(split.test)["p50"].to_numpy())
+        rows.append(
+            {
+                "inputs": " + ".join(names[: i + 1]),
+                "P50 error (min)": round(float(error.mean()), 2),
+                "within 5 min": f"{(error <= 5).mean():.1%}",
+                "last hour: error": round(float(error[last_hour].mean()), 2),
+                "last hour: within 5": f"{(error[last_hour] <= 5).mean():.1%}",
+            }
+        )
+        log.info("groups: %s", rows[-1])
+    return pd.DataFrame(rows)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sample", type=float, help="train on this share of training rows")
+    parser.add_argument("--groups", action="store_true", help="also measure each input group")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -118,6 +153,9 @@ def main() -> None:
             share.map("{:.1%}".format).rename("share").rename_axis("input").reset_index()
         )
     )
+    if args.groups:
+        print("\n## What each group adds (P50 only)\n")
+        print(markdown_frame(group_gains(split)))
     log.info("done in %.0f s", time.monotonic() - started)
 
 

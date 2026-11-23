@@ -21,6 +21,12 @@
 --                         for analysis only, never as an input.
 --   usual air time        mean BTS air time (wheels off to on) for the route over the 3 BTS
 --                         months published by then (bts_lag_months, as in training_set)
+--   destination traffic   landings at the destination (any traffic, same feed) in the hour
+--                         ending at the last 15-minute mark at least 20 minutes before the
+--                         moment (live, an unseen landing is only declared after a 20-minute
+--                         gap); normal = mean of the same hour over the previous 7 days of the
+--                         feed; and planes airborne towards it (by expected destination) in the
+--                         last whole 15 minutes before the moment
 -- tests/inflight_training_set_is_point_in_time.sql recomputes a sample from scratch.
 with flights as (
     select * from {{ ref('stg_tracked_flights') }}
@@ -74,6 +80,76 @@ air_time_monthly as (
 
 bts_airports as (
     select distinct dest as iata from air_time_monthly
+),
+
+-- Destination traffic on a 15-minute grid per feed and BTS airport (empty slots count 0).
+feed_span as (
+    select
+        feed,
+        time_bucket(interval 15 minute, min(first_air_time)) as first_bucket,
+        time_bucket(interval 15 minute, max(landing_time)) as last_bucket
+    from {{ ref('stg_tracked_flights') }}
+    group by feed
+),
+
+grid as (
+    select f.feed, a.iata as airport, unnest(generate_series(
+        f.first_bucket, f.last_bucket, interval 15 minute
+    )) as bucket
+    from feed_span as f
+    cross join bts_airports as a
+),
+
+landings as (
+    select feed, dest as airport, time_bucket(interval 15 minute, landing_time) as bucket,
+        count(*) as n
+    from {{ ref('stg_tracked_flights') }}
+    where dest_how in ('seen', 'inferred') and landing_time is not null
+    group by all
+),
+
+-- +1 when a plane expected at the airport takes off, -1 when it lands: the running total is
+-- the number airborne towards it during each slot
+inbound_changes as (
+    select t.feed, g.expected_dest as airport,
+        time_bucket(interval 15 minute, t.first_air_time) as bucket, count(*) as change
+    from targets as t
+    join dest_guess as g using (feed, icao24, first_air_time)
+    group by all
+    union all
+    select t.feed, g.expected_dest,
+        time_bucket(interval 15 minute, t.landing_time), -count(*)
+    from targets as t
+    join dest_guess as g using (feed, icao24, first_air_time)
+    group by all
+),
+
+traffic_counts as (
+    select
+        g.feed,
+        g.airport,
+        g.bucket,
+        sum(coalesce(l.n, 0)) over (
+            partition by g.feed, g.airport order by g.bucket rows between 3 preceding and current row
+        ) as landings_1h,
+        sum(coalesce(c.change, 0)) over (
+            partition by g.feed, g.airport order by g.bucket
+        ) as inbound_airborne
+    from grid as g
+    left join landings as l using (feed, airport, bucket)
+    left join (
+        select feed, airport, bucket, sum(change) as change from inbound_changes group by all
+    ) as c using (feed, airport, bucket)
+),
+
+traffic as (
+    select
+        *,
+        avg(landings_1h) over (
+            partition by feed, airport, epoch(bucket)::bigint % 86400
+            order by bucket rows between 7 preceding and 1 preceding
+        ) as landings_1h_normal
+    from traffic_counts
 ),
 
 points as (
@@ -148,9 +224,21 @@ features as (
         u.air_min as route_air_min,
         u.n as route_flights_3m,
         hour(timezone(p.dest_tz, p.position_time)) as dest_hour_local,
-        dayofweek(timezone(p.dest_tz, p.position_time)) as dest_weekday_local
+        dayofweek(timezone(p.dest_tz, p.position_time)) as dest_weekday_local,
+        r.landings_1h as dest_landings_1h,
+        round(r.landings_1h_normal, 2)::float as dest_landings_1h_normal,
+        (r.landings_1h / nullif(r.landings_1h_normal, 0))::float as dest_landings_1h_ratio,
+        a.inbound_airborne as dest_inbound_airborne
     from points as p
     left join usual_air_time as u using (origin, dest, month_index)
+    -- the hour of landings ends at the last 15-minute mark at least 20 minutes back: the slot
+    -- starting 35+ minutes before the moment is the hour's last
+    left join traffic as r
+        on r.feed = p.feed and r.airport = p.dest
+        and r.bucket = time_bucket(interval 15 minute, p.position_time - interval 35 minute)
+    left join traffic as a
+        on a.feed = p.feed and a.airport = p.dest
+        and a.bucket = time_bucket(interval 15 minute, p.position_time) - interval 15 minute
 )
 
 select
