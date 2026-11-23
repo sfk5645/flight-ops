@@ -115,7 +115,10 @@ def train(
                 "alpha": huber_delta,
                 "metric": "l1",
                 "monotone_constraints": [monotone.get(c, 0) for c in features],
-                "monotone_constraints_method": "advanced",
+                # "advanced" still broke the inbound rule for 30 of 20,000 flights (Nov 23 2026,
+                # 1M-row sample); "intermediate" broke none and was the most accurate
+                # (25.628 vs advanced 25.633, basic 25.648 min)
+                "monotone_constraints_method": "intermediate",
             }
         train_set = lgb.Dataset(
             train_rows[features], train_rows[label], categorical_feature=categorical
